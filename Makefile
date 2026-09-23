@@ -1,4 +1,4 @@
-.PHONY: build test lint fuzz integration integration-down catalog docs
+.PHONY: build test lint vuln fuzz integration integration-down catalog docs
 
 build:
 	go build -o seta ./cmd/seta
@@ -6,10 +6,19 @@ build:
 test:
 	go test -race ./...
 
+# Tool versions are pinned here and used by CI, so both run the same checks.
+STATICCHECK = honnef.co/go/tools/cmd/staticcheck@v0.8.1
+GOVULNCHECK = golang.org/x/vuln/cmd/govulncheck@v1.8.0
+
 lint:
 	gofmt -l . | (! grep .)
 	go vet ./...
-	go run honnef.co/go/tools/cmd/staticcheck@2026.1 ./...
+	GOOS=windows go vet ./...
+	go vet -tags integration ./integration/
+	go run $(STATICCHECK) ./...
+
+vuln:
+	go run $(GOVULNCHECK) ./...
 
 # Fuzz each parser for FUZZTIME (default 30s).
 FUZZTIME ?= 30s

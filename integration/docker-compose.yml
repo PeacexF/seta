@@ -5,16 +5,17 @@
 name: seta-integration
 
 x-go: &go
-  image: golang:1.26
+  image: golang:1.27-alpine
   working_dir: /src
   volumes:
     - ..:/src:ro
     - certs:/certs
     - gocache:/root/.cache/go-build
     - ${SETA_GOMODCACHE:?run via make integration}:/go/pkg/mod:ro
-  environment:
+  environment: &goenv
     GOFLAGS: -buildvcs=false
     GOPROXY: "off"
+    GOTOOLCHAIN: local
 
 services:
   certgen:
@@ -66,8 +67,7 @@ services:
     <<: *go
     command: go test -tags integration -count=1 -v ./integration/
     environment:
-      GOFLAGS: -buildvcs=false
-      GOPROXY: "off"
+      <<: *goenv
       SETA_IT_DNS: 172.28.0.53
       SETA_IT_CA: /certs/ca.pem
     depends_on: [dns, mx-tls, mx-plain, mx-expired, mta-sts]
