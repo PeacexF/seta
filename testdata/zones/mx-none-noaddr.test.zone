@@ -1,0 +1,6 @@
+; No MX and no address records: mail to this domain is undeliverable.
+$TTL 300
+@    IN SOA ns1 hostmaster 1 3600 600 86400 300
+@    IN NS  ns1
+@    IN TXT "site-verification=abc"
+ns1  IN A   192.0.2.53

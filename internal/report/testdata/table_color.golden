@@ -1,0 +1,21 @@
+[1mbroken.test[0m
+  [1;35mCRITICAL[0m  email.spf.permissive_all  SPF record allows any sender
+            [2mrecord: v=spf1 +all[0m
+            [36mfix: [0mReplace +all with -all or ~all.
+  [1;31mHIGH    [0m  email.mx.missing          No MX records
+            [2mimplicit_mx: 192.0.2.80[0m
+            [2mmx_records: none[0m
+            [36mfix: [0mPublish MX records.
+  [36mLOW     [0m  email.mx.fcrdns           MX host lacks forward-confirmed reverse DNS (mx2.broken.test)
+
+[1mclean.test[0m
+  [32m✓ no findings[0m
+
+[1mflaky.test[0m
+  [33mno findings, but 1 check could not complete[0m
+
+[1mCheck errors (1)[0m
+[2m  These checks could not reach a verdict; they are not findings.[0m
+  flaky.test  email.mx.missing  lookup MX flaky.test: server responded SERVFAIL
+
+3 findings (1 critical, 1 high, 1 low) · 1 check error · 6 checks on 3 targets · 1.23s

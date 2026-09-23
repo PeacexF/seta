@@ -1,0 +1,8 @@
+; A web-only domain with no MX: senders fall back to the A record.
+$TTL 300
+@    IN SOA ns1 hostmaster 1 3600 600 86400 300
+@    IN NS  ns1
+@    IN A   192.0.2.80
+@    IN AAAA 2001:db8::80
+www  IN CNAME @
+ns1  IN A   192.0.2.53

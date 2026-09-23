@@ -1,0 +1,8 @@
+; A domain that explicitly receives no mail (null MX, RFC 7505).
+$TTL 300
+@    IN SOA ns1 hostmaster 1 3600 600 86400 300
+@    IN NS  ns1
+@    IN MX  0 .
+@    IN A   192.0.2.80
+@    IN TXT "v=spf1 -all"
+ns1  IN A   192.0.2.53
