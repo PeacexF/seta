@@ -161,6 +161,8 @@ func TestRunStrict(t *testing.T) {
 
 func TestRunSARIF(t *testing.T) {
 	path := writeConfig(t, mxConfig)
+	// Rel can't cross Windows volumes, and TempDir may be on another drive than the checkout.
+	t.Chdir(filepath.Dir(filepath.Dir(path)))
 	code, out, _ := mxHarness().run(t, "run", "-c", path, "-f", "sarif", "--fail-on", "none")
 	var log struct {
 		Runs []struct {
