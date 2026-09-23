@@ -35,6 +35,7 @@ func parse(t *testing.T, src string) (*Config, error) {
 	return Parse("seta.yaml", []byte(src), Options{
 		Registry:  testRegistry(t),
 		LookupEnv: func(k string) (string, bool) { v, ok := testEnv[k]; return v, ok },
+		Plugins:   []string{"ipv6"},
 	})
 }
 
@@ -72,7 +73,7 @@ func TestFullConfig(t *testing.T) {
 		t.Errorf("overrides: %v", c.SeverityOverrides)
 	}
 	s := c.Suppressions[0]
-	if s.Target != "example.com" || s.Line != 30 || !s.Expires.Equal(time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)) {
+	if s.Target != "example.com" || s.Line != 32 || !s.Expires.Equal(time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)) {
 		t.Errorf("suppression: %+v", s)
 	}
 	if !s.Matches(core.Finding{CheckID: "email.mtasts.missing", Target: "example.com"}) ||
@@ -99,12 +100,16 @@ func TestErrors(t *testing.T) {
 		{"no targets", "version: 1\n", []string{"1: no targets"}},
 		{"unknown field with suggestion", head + "    chekcs: [\"email.*\"]\n", []string{`4: unknown setting "chekcs" (did you mean "checks"?)`}},
 		{"unknown nested field", head + "    email:\n      selectors: [a]\n", []string{`5: unknown setting "selectors"`}},
-		{"not yet", head + "plugins_dir: x\n", []string{`4: "plugins_dir" is not supported by this version`}},
+		{"not yet", head + "include: x\n", []string{`4: "include" is not supported by this version`}},
+		{"plugin problems", head + "    plugins:\n      nope: {a: 1}\nplugins:\n  ipv6x: {}\n",
+			[]string{`5: no plugin named "nope" is installed`, `7: no plugin named "ipv6x"`}},
+		{"plugin settings", head + "plugins:\n  ipv6: {a: {[1]: x}}\n  other: [a]\n",
+			[]string{"5: plugin setting names must be plain strings", "6: plugin settings must be a mapping"}},
 		{"bad schedule", head + "schedule: \"61 * * * *\"\n", []string{`4: invalid schedule "61 * * * *"`}},
 		{"bad state", head + "state:\n  resolve_after: -1\n  retention: 12h\n",
 			[]string{"5: resolve_after must be at least 1", "6: retention must be at least 1d"}},
 		{"notifier problems", head + `notify:
-  - type: slack
+  - type: pager
   - type: telegram
     webhook: https://discord.com/api/webhooks/1/x
     on: [new, fixed]
@@ -118,13 +123,38 @@ func TestErrors(t *testing.T) {
   - type: webhook
     url: https://example.com
 `, []string{
-			`5: unknown notifier type "slack"`,
+			`5: unknown notifier type "pager"`,
 			`6: telegram notifier needs "bot_token"`, `6: telegram notifier needs "chat_id"`,
 			`7: "webhook" does not apply to telegram notifiers`,
 			`8: unknown change "fixed"`, `9: unknown severity "severe"`, "10: heartbeat must be at least 1h",
 			"12: webhook must be a Discord webhook URL",
 			"14: url must be an http(s) URL", `15: unknown format "xml"`,
 			`16: two notifiers are named "webhook" (the other on line 13)`,
+		}},
+		{"slack and email problems", head + `notify:
+  - type: slack
+    webhook: https://discord.com/api/webhooks/1/x
+  - type: email
+    host: smtp.example.com:587
+    port: 70000
+    tls: ssl
+    username: me
+    from: "not an address"
+    to: [ops@example.com, "@nope"]
+  - type: email
+    name: plain
+    host: localhost
+    tls: none
+    username: me
+    password: pw
+    from: seta@example.com
+    to: []
+`, []string{
+			"6: webhook must be a Slack incoming webhook URL",
+			"8: host must be a host name or IP address", "9: port must be between 1 and 65535", `10: unknown tls "ssl"`,
+			"11: username and password must be set together", `12: invalid from address "not an address"`,
+			`13: invalid to address "@nope"`,
+			"17: tls: none would send the password in clear text", `21: email notifier needs "to"`,
 		}},
 		{"type errors collected", "version: one\ntargets:\n  - domain: example.com\n    active: maybe\n",
 			[]string{"1: cannot unmarshal !!str `one` into int", "4: cannot unmarshal !!str `maybe` into bool"}},
@@ -166,6 +196,49 @@ func TestErrors(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestPlugins(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "seta.yaml")
+	src := `version: 1
+plugins_dir: ${PLUGINS}
+plugins:
+  ipv6: {hosts: ["@", www], strict: true, since: 2027-01-01, n: 0x10, "on": yes}
+targets:
+  - domain: a.com
+    plugins:
+      ipv6: {hosts: [mail]}
+  - domain: b.com
+`
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	lookup := func(k string) (string, bool) { return "plugins", k == "PLUGINS" }
+	if got := PluginsDir(path, lookup); got != filepath.Join(dir, "plugins") {
+		t.Errorf("PluginsDir = %q", got)
+	}
+	c, err := Load(path, Options{Registry: testRegistry(t), LookupEnv: lookup, Plugins: []string{"ipv6"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.PluginsDir != filepath.Join(dir, "plugins") {
+		t.Errorf("PluginsDir = %q", c.PluginsDir)
+	}
+	if got := string(c.PluginConfig(c.Targets[0])["ipv6"]); got != `{"hosts":["mail"],"n":16,"on":"yes","since":"2027-01-01","strict":true}` {
+		t.Errorf("a.com config = %s", got)
+	}
+	if got := string(c.PluginConfig(c.Targets[1])["ipv6"]); got != `{"hosts":["@","www"],"n":16,"on":"yes","since":"2027-01-01","strict":true}` {
+		t.Errorf("b.com config = %s", got)
+	}
+
+	c, err = parse(t, "version: 1\ntargets:\n  - domain: a.com\n    plugins: {ipv6: }\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(c.PluginConfig(c.Targets[0])["ipv6"]); got != "{}" {
+		t.Errorf("empty config = %s", got)
 	}
 }
 

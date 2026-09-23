@@ -2,7 +2,10 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
+	"maps"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -34,6 +37,12 @@ type Config struct {
 	Notify   []Notifier `yaml:"notify"`
 	Schedule string     `yaml:"schedule"`
 
+	// PluginsDir is searched for plugins before $PATH; relative to the
+	// config file after loading.
+	PluginsDir string `yaml:"plugins_dir"`
+	// Plugins holds each plugin's settings, by plugin name.
+	Plugins map[string]PluginConfig `yaml:"plugins"`
+
 	// Path is the file the config was loaded from, as given.
 	Path string `yaml:"-"`
 }
@@ -59,6 +68,8 @@ type Target struct {
 	// Active overrides Defaults.Active when set.
 	Active *bool `yaml:"active"`
 	Email  Email `yaml:"email"`
+	// Plugins override the top-level plugin settings key by key.
+	Plugins map[string]PluginConfig `yaml:"plugins"`
 
 	Line int `yaml:"-"`
 }
@@ -83,6 +94,13 @@ type Suppression struct {
 	Line int `yaml:"-"`
 	ids  map[string]bool
 }
+
+// SMTP connection security for email notifiers.
+const (
+	TLSStartTLS = "starttls"
+	TLSImplicit = "tls"
+	TLSNone     = "none"
+)
 
 // Defaults for the daemon settings.
 const (
@@ -114,16 +132,117 @@ type Notifier struct {
 
 	BotToken string `yaml:"bot_token"` // telegram
 	ChatID   string `yaml:"chat_id"`   // telegram
-	Webhook  string `yaml:"webhook"`   // discord
+	Webhook  string `yaml:"webhook"`   // discord, slack
 
 	URL             string `yaml:"url"`               // webhook
 	Secret          string `yaml:"secret"`            // webhook
 	Format          string `yaml:"format"`            // webhook
 	BlockPrivateIPs bool   `yaml:"block_private_ips"` // webhook
 
+	// email
+	Host     string   `yaml:"host"`
+	Port     int      `yaml:"port"`
+	TLS      string   `yaml:"tls"`
+	Username string   `yaml:"username"`
+	Password string   `yaml:"password"`
+	From     string   `yaml:"from"`
+	To       []string `yaml:"to"`
+
 	Line int `yaml:"-"`
 	// Severity is MinSeverity parsed; unset means all.
 	Severity core.Severity `yaml:"-"`
+}
+
+// PluginConfig is a plugin's own settings, passed to it as JSON.
+type PluginConfig map[string]any
+
+// UnmarshalYAML converts the settings to JSON values itself, so that
+// scalars reach the plugin as written: yaml.v3 would turn 2027-01-01 into a
+// timestamp with a time of day.
+func (c *PluginConfig) UnmarshalYAML(n *yaml.Node) error {
+	if n.Kind == yaml.ScalarNode && n.Tag == "!!null" {
+		*c = PluginConfig{}
+		return nil
+	}
+	if n.Kind != yaml.MappingNode {
+		return typeError(n, "plugin settings must be a mapping")
+	}
+	v, err := jsonValue(n)
+	if err != nil {
+		return err
+	}
+	*c = v.(map[string]any)
+	return nil
+}
+
+func jsonValue(n *yaml.Node) (any, error) {
+	switch n.Kind {
+	case yaml.AliasNode:
+		return jsonValue(n.Alias)
+	case yaml.MappingNode:
+		m := make(map[string]any, len(n.Content)/2)
+		for i := 0; i+1 < len(n.Content); i += 2 {
+			k := n.Content[i]
+			if k.Kind != yaml.ScalarNode {
+				return nil, typeError(k, "plugin setting names must be plain strings")
+			}
+			v, err := jsonValue(n.Content[i+1])
+			if err != nil {
+				return nil, err
+			}
+			m[k.Value] = v
+		}
+		return m, nil
+	case yaml.SequenceNode:
+		s := make([]any, 0, len(n.Content))
+		for _, c := range n.Content {
+			v, err := jsonValue(c)
+			if err != nil {
+				return nil, err
+			}
+			s = append(s, v)
+		}
+		return s, nil
+	}
+	switch n.ShortTag() {
+	case "!!null":
+		return nil, nil
+	case "!!bool", "!!int", "!!float":
+		var v any
+		if err := n.Decode(&v); err != nil {
+			return nil, err
+		}
+		if f, ok := v.(float64); ok && (math.IsInf(f, 0) || math.IsNaN(f)) {
+			return nil, typeError(n, "%s can't be passed to a plugin", n.Value)
+		}
+		return v, nil
+	}
+	return n.Value, nil
+}
+
+// PluginConfig returns each plugin's settings for t as JSON: the top-level
+// settings with the target's merged over them.
+func (c *Config) PluginConfig(t Target) map[string][]byte {
+	out := make(map[string][]byte)
+	for name, global := range c.Plugins {
+		merged := PluginConfig{}
+		maps.Copy(merged, global)
+		maps.Copy(merged, t.Plugins[name])
+		out[name], _ = json.Marshal(merged) // validated while loading
+	}
+	for name, own := range t.Plugins {
+		if _, ok := out[name]; !ok {
+			out[name], _ = json.Marshal(orEmpty(own))
+		}
+	}
+	return out
+}
+
+func orEmpty(m PluginConfig) PluginConfig {
+	if m == nil {
+		return PluginConfig{}
+	}
+	return m
 }
 
 // CheckPatterns returns the selection patterns that apply to t.

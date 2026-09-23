@@ -209,7 +209,7 @@ Planned modules: **tls**, **http**, **dns** (DNSSEC, CAA, dangling CNAMEs / subd
 
 ## Notifications
 
-Telegram, Discord, and generic webhooks (with optional HMAC signatures) come first, followed by Slack and email. Messages are split automatically to fit each platform's limits, rate limits are respected, and one failing notifier never blocks the others.
+Telegram, Discord, Slack, email (SMTP), and generic webhooks (with optional HMAC signatures). Messages are split automatically to fit each platform's limits, rate limits are respected, and one failing notifier never blocks the others.
 
 ## Plugins
 
@@ -223,7 +223,7 @@ $ echo '{"protocol":1,"check":"example.foo.bar","target":{...}}' | seta-plugin-e
 {"findings": [...], "error": null}
 ```
 
-A Go SDK and examples in Go, Python, and Bash will ship with the plugin system.
+Plugins can also live in a `plugins_dir` set in `seta.yaml`, and get settings from its `plugins:` section. `seta plugins list` shows what Seta found; `--no-plugins` turns them off. A Go SDK is in [`sdk/`](./sdk), with example plugins in Go, Python, and Bash in [`examples/plugins/`](./examples/plugins).
 
 ## Responsible use
 

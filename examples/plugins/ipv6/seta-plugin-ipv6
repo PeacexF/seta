@@ -1,0 +1,100 @@
+#!/usr/bin/env python3
+"""Example Seta plugin in Python (standard library only).
+
+Reports hosts that have IPv4 addresses (A records) but no IPv6 addresses
+(AAAA records).
+
+    install -m 755 examples/plugins/ipv6/seta-plugin-ipv6 ~/.local/bin/
+    seta scan --only 'ipv6.*' example.com
+
+Settings (seta.yaml); hosts are relative to each target ("@" is the domain):
+
+    plugins:
+      ipv6:
+        hosts: ["@", www, mail]
+        doh_url: https://cloudflare-dns.com/dns-query
+
+Records are looked up over DNS over HTTPS (the JSON API) rather than with
+getaddrinfo, which can't tell "no AAAA record" from "this machine has no
+IPv6" and would report false findings.
+"""
+
+import json
+import sys
+import urllib.parse
+import urllib.request
+
+PROTOCOL = 1
+
+CHECKS = [
+    {
+        "id": "ipv6.host.missing",
+        "title": "Host has no IPv6 address",
+        "description": "The host has A records but no AAAA records, so IPv6-only clients "
+        "and networks that prefer IPv6 can't reach it directly.",
+        "remediation": "Publish AAAA records for the host, or ask your hosting provider "
+        "to enable IPv6.",
+        "mode": "passive",
+        "severity": "low",
+        "references": ["https://www.rfc-editor.org/rfc/rfc3596"],
+    }
+]
+
+TYPES = {"A": 1, "AAAA": 28}
+
+
+def lookup(doh_url, name, rtype, timeout):
+    """Returns the addresses of one type; [] if there are none.
+
+    Anything but a clear answer raises, since "we couldn't find out" must be
+    a check error rather than a finding.
+    """
+    query = urllib.parse.urlencode({"name": name, "type": rtype})
+    req = urllib.request.Request(f"{doh_url}?{query}", headers={"Accept": "application/dns-json"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        answer = json.load(resp)
+    status = answer.get("Status")
+    if status == 3:  # NXDOMAIN
+        return []
+    if status != 0:
+        raise RuntimeError(f"looking up {rtype} {name}: DNS status {status}")
+    # Answers may include the CNAMEs followed to reach the records.
+    return sorted(r["data"] for r in answer.get("Answer", []) if r.get("type") == TYPES[rtype])
+
+
+def run(request):
+    if request.get("protocol") != PROTOCOL:
+        raise RuntimeError(f"unsupported protocol {request.get('protocol')}")
+    if request["check"] != "ipv6.host.missing":
+        raise RuntimeError(f"unknown check {request['check']!r}")
+    config = request.get("config") or {}
+    hosts = config.get("hosts", ["@", "www"])
+    doh_url = config.get("doh_url", "https://cloudflare-dns.com/dns-query")
+    domain = request["target"]["name"]
+    findings = []
+    for host in hosts:
+        name = domain if host == "@" else f"{host}.{domain}"
+        ipv4 = lookup(doh_url, name, "A", timeout=5)
+        if ipv4 and not lookup(doh_url, name, "AAAA", timeout=5):
+            findings.append({"subject": name, "evidence": {"ipv4": ", ".join(ipv4), "ipv6": "none"}})
+    return findings
+
+
+def main():
+    command = sys.argv[1] if len(sys.argv) == 2 else ""
+    if command == "describe":
+        json.dump({"protocol": PROTOCOL, "name": "ipv6", "version": "0.1.0", "checks": CHECKS}, sys.stdout)
+    elif command == "run":
+        try:
+            response = {"findings": run(json.load(sys.stdin)), "error": None}
+        except Exception as e:  # any failure is a check error, reported in the response
+            response = {"findings": [], "error": str(e)}
+        json.dump(response, sys.stdout)
+    else:
+        print("usage: seta-plugin-ipv6 describe|run", file=sys.stderr)
+        return 2
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -6,6 +6,8 @@ import (
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
+
+	"github.com/PeacexF/seta/internal/config"
 )
 
 func (a *App) checksCommand() *cobra.Command {
@@ -18,7 +20,8 @@ func (a *App) checksCommand() *cobra.Command {
 }
 
 func (a *App) checksExplainCommand() *cobra.Command {
-	return &cobra.Command{
+	var path string
+	cmd := &cobra.Command{
 		Use:     "explain <check-id>",
 		Short:   "Explain what a check verifies, why it matters, and how to fix it",
 		Example: "  seta checks explain email.spf.lookup_limit",
@@ -29,6 +32,7 @@ func (a *App) checksExplainCommand() *cobra.Command {
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			a.loadPluginsFor(cmd.Context(), path, false)
 			c, ok := a.Registry.Lookup(args[0])
 			if !ok {
 				return &exitError{code: ExitUsage, err: fmt.Errorf("unknown check %q; run 'seta checks list' to see all checks", args[0])}
@@ -51,6 +55,14 @@ func (a *App) checksExplainCommand() *cobra.Command {
 			return nil
 		},
 	}
+	pluginsConfigFlag(cmd, &path)
+	return cmd
+}
+
+// pluginsConfigFlag lets commands that don't run a config still find the
+// plugins in its plugins_dir.
+func pluginsConfigFlag(cmd *cobra.Command, path *string) {
+	cmd.Flags().StringVarP(path, "config", "c", config.DefaultPath, "config whose plugins_dir to search for plugins (ignored if missing)")
 }
 
 // wrap breaks text into indented lines of at most width columns.
@@ -68,12 +80,13 @@ func wrap(text string, width int) string {
 }
 
 func (a *App) checksListCommand() *cobra.Command {
-	var module string
+	var module, path string
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List available checks",
 		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			a.loadPluginsFor(cmd.Context(), path, false)
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 			fmt.Fprintln(tw, "ID\tMODE\tSEVERITY\tTITLE")
 			n := 0
@@ -92,6 +105,7 @@ func (a *App) checksListCommand() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&module, "module", "", "only list checks from this module (e.g. email)")
+	pluginsConfigFlag(cmd, &path)
 	return cmd
 }
 

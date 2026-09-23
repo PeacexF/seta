@@ -27,7 +27,7 @@ func (a *App) configValidateCommand() *cobra.Command {
 			"suppressions. Exits with code 2 if the config is invalid.",
 		Args: noArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cfg, err := a.loadConfig(path)
+			cfg, err := a.loadConfig(cmd.Context(), path)
 			if err != nil {
 				return err
 			}

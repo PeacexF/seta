@@ -3,8 +3,11 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/mail"
+	"net/netip"
 	"net/url"
 	"os"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"slices"
@@ -26,6 +29,8 @@ type Options struct {
 	Registry *registry.Registry
 	// LookupEnv resolves ${VAR} references. Nil means os.LookupEnv.
 	LookupEnv func(string) (string, bool)
+	// Plugins are the installed plugins' names, which plugins: may configure.
+	Plugins []string
 }
 
 // Error is one problem in a config file. Line and Column are 1-based; zero
@@ -67,7 +72,7 @@ func Load(path string, opts Options) (*Config, error) {
 // Parse decodes and validates a config. Any error it returns for the
 // content of data is an *Errors.
 func Parse(path string, data []byte, opts Options) (*Config, error) {
-	p := &parser{lookupEnv: opts.LookupEnv, reg: opts.Registry}
+	p := &parser{lookupEnv: opts.LookupEnv, reg: opts.Registry, plugins: opts.Plugins}
 	if p.lookupEnv == nil {
 		p.lookupEnv = os.LookupEnv
 	}
@@ -80,12 +85,48 @@ func Parse(path string, data []byte, opts Options) (*Config, error) {
 		return nil, err
 	}
 	c.Path = path
+	c.PluginsDir = resolveDir(path, c.PluginsDir)
 	return c, nil
+}
+
+// PluginsDir reads just plugins_dir from the config at path, so plugins can
+// be loaded before the config's check selections are validated against
+// them. Problems are left for Load to report.
+func PluginsDir(path string, lookupEnv func(string) (string, bool)) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	var doc yaml.Node
+	if yaml.Unmarshal(data, &doc) != nil || len(doc.Content) == 0 {
+		return ""
+	}
+	n := value(doc.Content[0], "plugins_dir")
+	if n == nil || n.Kind != yaml.ScalarNode {
+		return ""
+	}
+	p := &parser{lookupEnv: lookupEnv}
+	if p.lookupEnv == nil {
+		p.lookupEnv = os.LookupEnv
+	}
+	dir, err := p.expand(n.Value)
+	if err != nil {
+		return ""
+	}
+	return resolveDir(path, dir)
+}
+
+func resolveDir(configPath, dir string) string {
+	if dir == "" || filepath.IsAbs(dir) {
+		return dir
+	}
+	return filepath.Join(filepath.Dir(configPath), dir)
 }
 
 type parser struct {
 	lookupEnv func(string) (string, bool)
 	reg       *registry.Registry
+	plugins   []string
 	errs      []Error
 }
 
@@ -209,7 +250,7 @@ func (p *parser) expand(s string) (string, error) {
 
 // notYet names settings from the documented design that this version does
 // not implement, so copying an example gives a clear message.
-var notYet = map[string]bool{"plugins_dir": true, "include": true}
+var notYet = map[string]bool{"include": true}
 
 var unmarshalerType = reflect.TypeFor[yaml.Unmarshaler]()
 
@@ -353,6 +394,7 @@ func (p *parser) validate(c *Config, root *yaml.Node) {
 		p.suppression(&c.Suppressions[i], item(sups, i), firstLine)
 	}
 
+	p.pluginConfigs(c.Plugins, value(root, "plugins"))
 	p.state(&c.State, value(root, "state"))
 	names := make(map[string]int)
 	nots := value(root, "notify")
@@ -388,6 +430,8 @@ func (p *parser) state(s *State, n *yaml.Node) {
 var notifierFields = map[string]struct{ required, optional []string }{
 	"telegram": {required: []string{"bot_token", "chat_id"}},
 	"discord":  {required: []string{"webhook"}},
+	"slack":    {required: []string{"webhook"}},
+	"email":    {required: []string{"host", "from", "to"}, optional: []string{"port", "tls", "username", "password"}},
 	"webhook":  {required: []string{"url"}, optional: []string{"secret", "format", "block_private_ips"}},
 }
 
@@ -397,7 +441,7 @@ func (p *parser) notifier(nt *Notifier, n *yaml.Node, names map[string]int) {
 	nt.Line = n.Line
 	fields, ok := notifierFields[nt.Type]
 	if !ok {
-		p.errorf(nodeOr(value(n, "type"), n), "unknown notifier type %q (want telegram, discord or webhook)", nt.Type)
+		p.errorf(nodeOr(value(n, "type"), n), "unknown notifier type %q (want telegram, discord, slack, email or webhook)", nt.Type)
 		return
 	}
 	if nt.Name == "" {
@@ -416,7 +460,7 @@ func (p *parser) notifier(nt *Notifier, n *yaml.Node, names map[string]int) {
 		p.errorf(k, "%q does not apply to %s notifiers", k.Value, nt.Type)
 	}
 	for _, f := range fields.required {
-		if v := value(n, f); v == nil || v.Value == "" {
+		if v := value(n, f); v == nil || v.Value == "" && v.Kind == yaml.ScalarNode || v.Kind == yaml.SequenceNode && len(v.Content) == 0 {
 			p.errorf(nodeOr(v, n), "%s notifier needs %q", nt.Type, f)
 		}
 	}
@@ -447,6 +491,12 @@ func (p *parser) notifier(nt *Notifier, n *yaml.Node, names map[string]int) {
 		if nt.Webhook != "" && !discordWebhook.MatchString(nt.Webhook) {
 			p.errorf(value(n, "webhook"), "webhook must be a Discord webhook URL (https://discord.com/api/webhooks/...)")
 		}
+	case "slack":
+		if nt.Webhook != "" && !slackWebhook.MatchString(nt.Webhook) {
+			p.errorf(value(n, "webhook"), "webhook must be a Slack incoming webhook URL (https://hooks.slack.com/services/...)")
+		}
+	case "email":
+		p.email(nt, n)
 	case "webhook":
 		if nt.URL != "" {
 			if u, err := url.Parse(nt.URL); err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
@@ -455,6 +505,47 @@ func (p *parser) notifier(nt *Notifier, n *yaml.Node, names map[string]int) {
 		}
 		if nt.Format != "" && nt.Format != "json" {
 			p.errorf(value(n, "format"), "unknown format %q (only json is supported)", nt.Format)
+		}
+	}
+}
+
+var slackWebhook = regexp.MustCompile(`^https://hooks\.slack(-gov)?\.com/services/[A-Za-z0-9_/-]+$`)
+
+func (p *parser) email(nt *Notifier, n *yaml.Node) {
+	if nt.Host != "" {
+		if _, err := netip.ParseAddr(nt.Host); err != nil {
+			if _, err := core.ParseDomain(nt.Host); err != nil && nt.Host != "localhost" {
+				p.errorf(value(n, "host"), "host must be a host name or IP address, without a port (set port: separately)")
+			}
+		}
+	}
+	switch nt.TLS {
+	case "":
+		nt.TLS = TLSStartTLS
+	case TLSStartTLS, TLSImplicit, TLSNone:
+	default:
+		p.errorf(value(n, "tls"), "unknown tls %q (want starttls, tls or none)", nt.TLS)
+	}
+	if nt.Port == 0 {
+		nt.Port = map[string]int{TLSStartTLS: 587, TLSImplicit: 465, TLSNone: 25}[nt.TLS]
+	} else if nt.Port < 1 || nt.Port > 65535 {
+		p.errorf(value(n, "port"), "port must be between 1 and 65535")
+	}
+	if (nt.Username == "") != (nt.Password == "") {
+		p.errorf(nodeOr(value(n, "password"), value(n, "username")), "username and password must be set together")
+	}
+	if nt.Password != "" && nt.TLS == TLSNone {
+		p.errorf(value(n, "tls"), "tls: none would send the password in clear text")
+	}
+	if nt.From != "" {
+		if _, err := mail.ParseAddress(nt.From); err != nil {
+			p.errorf(value(n, "from"), "invalid from address %q", nt.From)
+		}
+	}
+	to := value(n, "to")
+	for i, addr := range nt.To {
+		if _, err := mail.ParseAddress(addr); err != nil {
+			p.errorf(item(to, i), "invalid to address %q", addr)
 		}
 	}
 }
@@ -520,6 +611,7 @@ func (p *parser) target(t *Target, n *yaml.Node, firstLine map[string]int) {
 		firstLine[t.Domain] = dn.Line
 	}
 	p.patterns(value(n, "checks"), n, t.Checks)
+	p.pluginConfigs(t.Plugins, value(n, "plugins"))
 
 	email := value(n, "email")
 	sels := value(email, "dkim_selectors")
@@ -549,6 +641,14 @@ func (p *parser) target(t *Target, n *yaml.Node, firstLine map[string]int) {
 			continue
 		}
 		t.Email.DNSBLs[i] = parsed.Name
+	}
+}
+
+func (p *parser) pluginConfigs(cfgs map[string]PluginConfig, n *yaml.Node) {
+	for i := 0; n != nil && n.Kind == yaml.MappingNode && i+1 < len(n.Content); i += 2 {
+		if k := n.Content[i]; !slices.Contains(p.plugins, k.Value) {
+			p.errorf(k, "no plugin named %q is installed; 'seta plugins list' shows the plugins seta finds", k.Value)
+		}
 	}
 }
 

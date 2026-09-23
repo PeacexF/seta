@@ -59,6 +59,7 @@ func (a *App) runScan(cmd *cobra.Command, args []string, rf resolverFlags, sf sc
 	if err != nil {
 		return &exitError{code: ExitUsage, err: err}
 	}
+	a.loadPlugins(cmd.Context(), "", false)
 	checks, skippedActive, err := a.selectChecks(sf.only, sf.active)
 	if err != nil {
 		return &exitError{code: ExitUsage, err: err}

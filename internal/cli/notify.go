@@ -33,7 +33,7 @@ func (a *App) notifyTestCommand() *cobra.Command {
 			"  seta notify test --name telegram",
 		Args: noArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cfg, err := a.loadConfig(path)
+			cfg, err := a.loadConfig(cmd.Context(), path)
 			if err != nil {
 				return err
 			}

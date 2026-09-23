@@ -30,6 +30,9 @@ type harness struct {
 	specs            [][]string // every spec list a resolver was built for
 	questions        []string
 	now              time.Time
+	// path is $PATH for plugin discovery; empty by default so plugins
+	// installed on the machine running the tests don't leak in.
+	path string
 	// onStderr sees everything written to stderr, as it is written.
 	onStderr func(string)
 }
@@ -103,6 +106,12 @@ func (h *harness) runCtx(t *testing.T, ctx context.Context, args ...string) (cod
 		},
 		Stdout: &out,
 		Stderr: errOut,
+		LookupEnv: func(k string) (string, bool) {
+			if k == "PATH" {
+				return h.path, true
+			}
+			return os.LookupEnv(k)
+		},
 	}
 	if !h.now.IsZero() {
 		app.Now = func() time.Time { return h.now }

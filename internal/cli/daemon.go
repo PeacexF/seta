@@ -71,7 +71,7 @@ func (a *App) runDaemon(cmd *cobra.Command, cf configRunFlags, df daemonFlags) e
 	log := a.logger
 	ctx := cmd.Context()
 
-	p, err := a.planConfig(cf)
+	p, err := a.planConfig(ctx, cf)
 	if err != nil {
 		return err
 	}

@@ -19,6 +19,8 @@ type Target struct {
 	Kind  TargetKind
 	Name  string
 	Email EmailOptions
+	// Plugins holds each plugin's JSON config for this target, by plugin name.
+	Plugins map[string][]byte
 }
 
 type EmailOptions struct {

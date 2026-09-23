@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -107,10 +108,11 @@ func (a *App) baselineCommand() *cobra.Command {
 	return cmd
 }
 
-// loadConfig reads and validates the config, printing warnings about
-// expired suppressions.
-func (a *App) loadConfig(path string) (*config.Config, error) {
-	cfg, err := config.Load(path, config.Options{Registry: a.Registry})
+// loadConfig loads plugins, then reads and validates the config against
+// them, printing warnings about expired suppressions.
+func (a *App) loadConfig(ctx context.Context, path string) (*config.Config, error) {
+	plugins := a.loadPluginsFor(ctx, path, false)
+	cfg, err := config.Load(path, config.Options{Registry: a.Registry, LookupEnv: a.lookupEnv, Plugins: plugins.names()})
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, usageErr("config %s does not exist; create one with 'seta init'", path)
@@ -134,8 +136,8 @@ type plan struct {
 	notes []string
 }
 
-func (a *App) planConfig(cf configRunFlags) (*plan, error) {
-	cfg, err := a.loadConfig(cf.config)
+func (a *App) planConfig(ctx context.Context, cf configRunFlags) (*plan, error) {
+	cfg, err := a.loadConfig(ctx, cf.config)
 	if err != nil {
 		return nil, err
 	}
@@ -174,7 +176,7 @@ func (a *App) planConfig(cf configRunFlags) (*plan, error) {
 			p.notes = append(p.notes, fmt.Sprintf("%s: no checks selected.", t.Domain))
 			continue
 		}
-		p.jobs = append(p.jobs, engine.Job{Target: targetOf(t), Checks: checks})
+		p.jobs = append(p.jobs, engine.Job{Target: targetOf(cfg, t), Checks: checks})
 	}
 	if len(p.jobs) == 0 {
 		return nil, usageErr("no checks selected for any target")
@@ -207,7 +209,7 @@ func (a *App) newEngine(cmd *cobra.Command, cf configRunFlags, cfg *config.Confi
 // runConfig runs every target of the config once and applies its severity
 // overrides and suppressions.
 func (a *App) runConfig(cmd *cobra.Command, cf configRunFlags) (*engine.Result, *config.Config, []string, error) {
-	p, err := a.planConfig(cf)
+	p, err := a.planConfig(cmd.Context(), cf)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -220,7 +222,7 @@ func (a *App) runConfig(cmd *cobra.Command, cf configRunFlags) (*engine.Result, 
 	return res, p.cfg, p.notes, nil
 }
 
-func targetOf(t config.Target) core.Target {
+func targetOf(cfg *config.Config, t config.Target) core.Target {
 	return core.Target{
 		Kind: core.KindDomain,
 		Name: t.Domain,
@@ -230,6 +232,7 @@ func targetOf(t config.Target) core.Target {
 			DNSBLs:         t.Email.DNSBLs,
 			SpamhausDQSKey: os.Getenv("SETA_SPAMHAUS_DQS_KEY"),
 		},
+		Plugins: cfg.PluginConfig(t),
 	}
 }
 

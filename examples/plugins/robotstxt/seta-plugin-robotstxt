@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# Example Seta plugin in Bash; needs curl and jq.
+#
+# Reports sites whose robots.txt tells every crawler to stay away, usually a
+# staging setting that shipped to production and takes the site out of
+# search results.
+#
+#   install -m 755 examples/plugins/robotstxt/seta-plugin-robotstxt ~/.local/bin/
+#   seta scan --active --only 'robotstxt.*' example.com
+set -euo pipefail
+
+describe() {
+  jq -n '{
+    protocol: 1, name: "robotstxt", version: "0.1.0",
+    checks: [{
+      id: "robotstxt.site.disallow_all",
+      title: "robots.txt blocks all crawlers",
+      description: "The site'"'"'s robots.txt disallows everything for every user agent, so search engines drop the site from their results.",
+      remediation: "Remove \"Disallow: /\" from the \"User-agent: *\" group, or suppress this finding if the site should not be indexed.",
+      mode: "active",
+      severity: "medium",
+      references: ["https://www.rfc-editor.org/rfc/rfc9309"]
+    }]
+  }'
+}
+
+# respond prints a response: an error message, or findings as a JSON array.
+respond() {
+  if [[ -n "$1" ]]; then
+    jq -n --arg error "$1" '{findings: [], error: $error}'
+  else
+    jq -n --argjson findings "$2" '{findings: $findings, error: null}'
+  fi
+}
+
+# blocks_all reads robots.txt and succeeds if a group for "*" disallows "/".
+blocks_all() {
+  tr -d '\r' | sed 's/#.*//' | awk '
+    /^[[:space:]]*$/ { next }
+    {
+      split($0, kv, ":"); key = tolower(kv[1]); gsub(/[[:space:]]/, "", key)
+      value = substr($0, index($0, ":") + 1); gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+    }
+    key == "user-agent" { if (!in_agents) star = 0; in_agents = 1; if (value == "*") star = 1; next }
+    { in_agents = 0 }
+    key == "disallow" && star && value == "/" { found = 1 }
+    END { exit found ? 0 : 1 }
+  '
+}
+
+run() {
+  local request domain url status
+  request=$(cat)
+  if [[ $(jq -r .protocol <<<"$request") != 1 ]]; then
+    respond "unsupported protocol"; return
+  fi
+  domain=$(jq -r .target.name <<<"$request")
+  url="https://$domain/robots.txt"
+  tmp=$(mktemp -d)
+  trap 'rm -rf "$tmp"' EXIT
+  # Unreachable is a check error: we couldn't find out, which is not a finding.
+  # Crawlers follow at least five redirects (RFC 9309, 2.3.1.2).
+  if ! status=$(curl -sSL --max-redirs 5 -o "$tmp/body" -w '%{http_code}' --max-time 10 -A "seta-plugin-robotstxt/0.1.0" "$url" 2>"$tmp/errors"); then
+    respond "fetching $url: $(head -c 300 "$tmp/errors")"; return
+  fi
+  case "$status" in
+    200) ;;
+    404|410) respond "" "[]"; return ;; # no robots.txt allows everything
+    *) respond "fetching $url: HTTP $status"; return ;;
+  esac
+  if blocks_all <"$tmp/body"; then
+    respond "" "$(jq -n --arg url "$url" '[{evidence: {url: $url, rule: "User-agent: * / Disallow: /"}}]')"
+  else
+    respond "" "[]"
+  fi
+}
+
+case "${1:-}" in
+  describe) describe ;;
+  run) run ;;
+  *) echo "usage: seta-plugin-robotstxt describe|run" >&2; exit 2 ;;
+esac

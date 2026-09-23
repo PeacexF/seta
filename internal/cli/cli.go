@@ -42,12 +42,17 @@ type App struct {
 	Stderr io.Writer
 	// Now decides when suppressions expire. Nil means time.Now.
 	Now func() time.Time
+	// LookupEnv reads $PATH for plugin discovery, ${VAR} in the config, and
+	// the environment plugins inherit a minimal part of. Nil means os.LookupEnv.
+	LookupEnv func(string) (string, bool)
 
 	// Global flags.
-	debug   bool
-	noColor bool
-	logger  *slog.Logger
-	stdin   *bufio.Reader
+	debug     bool
+	noColor   bool
+	noPlugins bool
+	logger    *slog.Logger
+	stdin     *bufio.Reader
+	plugins   *pluginSet
 }
 
 // Run executes the command line in args (without the program name) and
@@ -107,6 +112,7 @@ func (a *App) rootCommand() *cobra.Command {
 	}
 	root.PersistentFlags().BoolVar(&a.debug, "debug", false, "enable debug logging on stderr")
 	root.PersistentFlags().BoolVar(&a.noColor, "no-color", false, "disable colored output")
+	root.PersistentFlags().BoolVar(&a.noPlugins, "no-plugins", false, "don't load seta-plugin-* executables")
 	root.SetFlagErrorFunc(func(cmd *cobra.Command, err error) error {
 		return &exitError{code: ExitUsage, err: fmt.Errorf("%w (see '%s --help')", err, cmd.CommandPath())}
 	})
@@ -121,6 +127,7 @@ func (a *App) rootCommand() *cobra.Command {
 		a.initCommand(),
 		a.daemonCommand(),
 		a.notifyCommand(),
+		a.pluginsCommand(),
 	)
 	return root
 }

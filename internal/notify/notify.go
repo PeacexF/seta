@@ -1,4 +1,5 @@
-// Package notify delivers run digests to Telegram, Discord and webhooks.
+// Package notify delivers run digests to Telegram, Discord, Slack, email
+// and webhooks.
 package notify
 
 import (
@@ -8,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/mail"
 	"slices"
 	"strings"
 	"sync"
@@ -106,6 +108,24 @@ func FromConfig(nts []config.Notifier, opts Options) ([]Channel, error) {
 		case "webhook":
 			ch.Notifier = &Webhook{URL: nt.URL, Secret: nt.Secret, HTTP: h}
 			ch.Secrets = []string{nt.Secret, nt.URL}
+		case "slack":
+			ch.Notifier = &Slack{URL: nt.Webhook, HTTP: h}
+			ch.Secrets = []string{nt.Webhook}
+		case "email":
+			e := &Email{Host: nt.Host, Port: nt.Port, TLS: nt.TLS, Username: nt.Username, Password: nt.Password}
+			var err error
+			if e.From, err = mail.ParseAddress(nt.From); err != nil {
+				return nil, fmt.Errorf("notifier %s: from: %w", nt.Name, err)
+			}
+			for _, addr := range nt.To {
+				a, err := mail.ParseAddress(addr)
+				if err != nil {
+					return nil, fmt.Errorf("notifier %s: to: %w", nt.Name, err)
+				}
+				e.To = append(e.To, a)
+			}
+			ch.Notifier = e
+			ch.Secrets = []string{nt.Password}
 		default:
 			return nil, fmt.Errorf("unknown notifier type %q", nt.Type)
 		}
