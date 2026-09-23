@@ -98,7 +98,9 @@ func TestSchemaRejects(t *testing.T) {
 		"version: 1\ntargets: [{domain: a.com}]\ndefaults: {check_timeout: 10}",
 		"version: 1\ntargets: [{domain: a.com}]\nseverity_overrides: {email.spf.missing: severe}",
 		"version: 1\ntargets: [{domain: a.com}]\nsuppressions: [{check: email.spf.missing}]",
-		"version: 1\ntargets: [{domain: a.com}]\nnotify: []",
+		"version: 1\ntargets: [{domain: a.com}]\nplugins_dir: x",
+		"version: 1\ntargets: [{domain: a.com}]\nnotify: [{type: telegram, chat_id: 1}]",
+		"version: 1\ntargets: [{domain: a.com}]\nnotify: [{type: slack}]",
 	} {
 		var n yaml.Node
 		if err := yaml.Unmarshal([]byte(src), &n); err != nil {

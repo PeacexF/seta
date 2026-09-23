@@ -35,3 +35,17 @@ suppressions:
     target: example.org
     subject: "selector:k1"
     reason: "Rotating the key with the provider"
+
+schedule: "@every 6h"
+state:
+  path: state.db
+  retention: 30d
+notify:
+  - type: telegram
+    bot_token: "123:abc"
+    chat_id: -100123
+    on: [new, regressed]
+    heartbeat: weekly
+  - type: webhook
+    url: https://hooks.example.com/seta
+    secret: x

@@ -127,18 +127,23 @@ func (a *App) loadConfig(path string) (*config.Config, error) {
 	return cfg, nil
 }
 
-// runConfig runs every target of the config and applies its severity
-// overrides and suppressions.
-func (a *App) runConfig(cmd *cobra.Command, cf configRunFlags) (*engine.Result, *config.Config, []string, error) {
+// plan is a loaded config turned into engine jobs.
+type plan struct {
+	cfg   *config.Config
+	jobs  []engine.Job
+	notes []string
+}
+
+func (a *App) planConfig(cf configRunFlags) (*plan, error) {
 	cfg, err := a.loadConfig(cf.config)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, err
 	}
 	var only map[string]bool
 	if cf.only != nil {
 		checks, err := a.Registry.Select(cf.only)
 		if err != nil {
-			return nil, nil, nil, usageErr("%v", err)
+			return nil, usageErr("%v", err)
 		}
 		only = make(map[string]bool)
 		for _, c := range checks {
@@ -146,15 +151,12 @@ func (a *App) runConfig(cmd *cobra.Command, cf configRunFlags) (*engine.Result, 
 		}
 	}
 
-	var (
-		jobs          []engine.Job
-		notes         []string
-		skippedActive int
-	)
+	p := &plan{cfg: cfg}
+	skippedActive := 0
 	for _, t := range cfg.Targets {
 		selected, err := a.Registry.Select(cfg.CheckPatterns(t))
 		if err != nil {
-			return nil, nil, nil, usageErr("%v", err) // validated while loading
+			return nil, usageErr("%v", err) // validated while loading
 		}
 		active := cf.active || cfg.ActiveFor(t)
 		var checks []core.Check
@@ -169,19 +171,24 @@ func (a *App) runConfig(cmd *cobra.Command, cf configRunFlags) (*engine.Result, 
 			}
 		}
 		if len(checks) == 0 {
-			notes = append(notes, fmt.Sprintf("%s: no checks selected.", t.Domain))
+			p.notes = append(p.notes, fmt.Sprintf("%s: no checks selected.", t.Domain))
 			continue
 		}
-		jobs = append(jobs, engine.Job{Target: targetOf(t), Checks: checks})
+		p.jobs = append(p.jobs, engine.Job{Target: targetOf(t), Checks: checks})
 	}
-	if len(jobs) == 0 {
-		return nil, nil, nil, usageErr("no checks selected for any target")
+	if len(p.jobs) == 0 {
+		return nil, usageErr("no checks selected for any target")
 	}
 	if skippedActive > 0 {
-		notes = append(notes, fmt.Sprintf("%s not run; set active: true on a target or pass --active.",
+		p.notes = append(p.notes, fmt.Sprintf("%s not run; set active: true on a target or pass --active.",
 			plural(skippedActive, "active check")))
 	}
+	return p, nil
+}
 
+// newEngine sets up the resolver (flags win over the config) and returns
+// an engine using it, along with the effective resolver settings.
+func (a *App) newEngine(cmd *cobra.Command, cf configRunFlags, cfg *config.Config) (*engine.Engine, resolverFlags, error) {
 	rf := cf.rf
 	if !cmd.Flags().Changed("resolver") && len(cfg.Resolver.Servers) > 0 {
 		rf.specs = cfg.Resolver.Servers
@@ -190,14 +197,27 @@ func (a *App) runConfig(cmd *cobra.Command, cf configRunFlags) (*engine.Result, 
 	rf.timeout = time.Duration(cfg.Resolver.Timeout)
 	resolver, err := a.setupResolver(cmd.Context(), rf)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, rf, err
 	}
-
 	eng := &engine.Engine{Resolver: resolver, Logger: a.logger, CheckTimeout: time.Duration(cfg.Defaults.CheckTimeout)}
 	eng.Net.UserAgent = version.UserAgent()
-	res := eng.Run(cmd.Context(), jobs)
-	cfg.Apply(res, a.now())
-	return res, cfg, notes, nil
+	return eng, rf, nil
+}
+
+// runConfig runs every target of the config once and applies its severity
+// overrides and suppressions.
+func (a *App) runConfig(cmd *cobra.Command, cf configRunFlags) (*engine.Result, *config.Config, []string, error) {
+	p, err := a.planConfig(cf)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	eng, _, err := a.newEngine(cmd, cf, p.cfg)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	res := eng.Run(cmd.Context(), p.jobs)
+	p.cfg.Apply(res, a.now())
+	return res, p.cfg, p.notes, nil
 }
 
 func targetOf(t config.Target) core.Target {

@@ -99,7 +99,33 @@ func TestErrors(t *testing.T) {
 		{"no targets", "version: 1\n", []string{"1: no targets"}},
 		{"unknown field with suggestion", head + "    chekcs: [\"email.*\"]\n", []string{`4: unknown setting "chekcs" (did you mean "checks"?)`}},
 		{"unknown nested field", head + "    email:\n      selectors: [a]\n", []string{`5: unknown setting "selectors"`}},
-		{"not yet", head + "notify: []\n", []string{`4: "notify" is not supported by this version`}},
+		{"not yet", head + "plugins_dir: x\n", []string{`4: "plugins_dir" is not supported by this version`}},
+		{"bad schedule", head + "schedule: \"61 * * * *\"\n", []string{`4: invalid schedule "61 * * * *"`}},
+		{"bad state", head + "state:\n  resolve_after: -1\n  retention: 12h\n",
+			[]string{"5: resolve_after must be at least 1", "6: retention must be at least 1d"}},
+		{"notifier problems", head + `notify:
+  - type: slack
+  - type: telegram
+    webhook: https://discord.com/api/webhooks/1/x
+    on: [new, fixed]
+    min_severity: severe
+    heartbeat: 10m
+  - type: discord
+    webhook: https://example.com/hook
+  - type: webhook
+    url: ftp://example.com
+    format: xml
+  - type: webhook
+    url: https://example.com
+`, []string{
+			`5: unknown notifier type "slack"`,
+			`6: telegram notifier needs "bot_token"`, `6: telegram notifier needs "chat_id"`,
+			`7: "webhook" does not apply to telegram notifiers`,
+			`8: unknown change "fixed"`, `9: unknown severity "severe"`, "10: heartbeat must be at least 1h",
+			"12: webhook must be a Discord webhook URL",
+			"14: url must be an http(s) URL", `15: unknown format "xml"`,
+			`16: two notifiers are named "webhook" (the other on line 13)`,
+		}},
 		{"type errors collected", "version: one\ntargets:\n  - domain: example.com\n    active: maybe\n",
 			[]string{"1: cannot unmarshal !!str `one` into int", "4: cannot unmarshal !!str `maybe` into bool"}},
 		{"bare duration", head + "defaults:\n  check_timeout: 10\n", []string{"5: invalid duration \"10\""}},
@@ -140,6 +166,53 @@ func TestErrors(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestDaemonSettings(t *testing.T) {
+	c, err := parse(t, "version: 1\ntargets:\n  - domain: example.com\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.State.Path != DefaultStatePath || c.State.ResolveAfter != 2 || c.State.Retention != DefaultRetention || c.Schedule != DefaultSchedule {
+		t.Errorf("defaults: %+v %q", c.State, c.Schedule)
+	}
+	c, err = parse(t, `version: 1
+targets:
+  - domain: example.com
+schedule: "@every 30m"
+state:
+  path: /var/lib/seta/state.db
+  resolve_after: 3
+  retention: 30d
+notify:
+  - type: telegram
+    bot_token: "123456:ABC-def_1"
+    chat_id: -1001234567890
+    on: [new, regressed]
+    min_severity: medium
+    heartbeat: weekly
+  - type: discord
+    name: team
+    webhook: https://discord.com/api/webhooks/123/abc-DEF
+  - type: webhook
+    url: https://hooks.example.com/seta
+    secret: s3cret
+    block_private_ips: true
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.State.ResolveAfter != 3 || c.State.Retention != Duration(30*24*time.Hour) || c.Schedule != "@every 30m" {
+		t.Errorf("state: %+v %q", c.State, c.Schedule)
+	}
+	tg := c.Notify[0]
+	if tg.Name != "telegram" || tg.ChatID != "-1001234567890" || tg.Severity != core.SeverityMedium ||
+		tg.Heartbeat != Duration(7*24*time.Hour) || tg.Line != 10 {
+		t.Errorf("telegram: %+v", tg)
+	}
+	if c.Notify[1].Name != "team" || !c.Notify[2].BlockPrivateIPs || c.Notify[2].Severity != core.SeverityUnset {
+		t.Errorf("notifiers: %+v", c.Notify[1:])
 	}
 }
 

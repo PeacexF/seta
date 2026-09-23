@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -29,9 +30,38 @@ type harness struct {
 	specs            [][]string // every spec list a resolver was built for
 	questions        []string
 	now              time.Time
+	// onStderr sees everything written to stderr, as it is written.
+	onStderr func(string)
 }
 
 func (h *harness) run(t *testing.T, args ...string) (code int, stdout, stderr string) {
+	t.Helper()
+	return h.runCtx(t, context.Background(), args...)
+}
+
+// syncBuffer is written by the daemon while tests read it.
+type syncBuffer struct {
+	mu    sync.Mutex
+	buf   bytes.Buffer
+	watch func(string)
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.watch != nil {
+		b.watch(string(p))
+	}
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+func (h *harness) runCtx(t *testing.T, ctx context.Context, args ...string) (code int, stdout, stderr string) {
 	t.Helper()
 	reg := registry.New()
 	checks := h.checks
@@ -50,7 +80,12 @@ func (h *harness) run(t *testing.T, args ...string) (code int, stdout, stderr st
 		}
 		return r
 	}
-	var out, errOut bytes.Buffer
+	var out bytes.Buffer
+	errOut := &syncBuffer{watch: func(s string) {
+		if h.onStderr != nil {
+			h.onStderr(s)
+		}
+	}}
 	app := &App{
 		Registry: reg,
 		NewResolver: func(specs []string) (dnsx.Resolver, error) {
@@ -67,7 +102,7 @@ func (h *harness) run(t *testing.T, args ...string) (code int, stdout, stderr st
 			return pick(h.system), nil
 		},
 		Stdout: &out,
-		Stderr: &errOut,
+		Stderr: errOut,
 	}
 	if !h.now.IsZero() {
 		app.Now = func() time.Time { return h.now }
@@ -78,7 +113,7 @@ func (h *harness) run(t *testing.T, args ...string) (code int, stdout, stderr st
 			return h.prompt(q)
 		}
 	}
-	code = app.Run(context.Background(), args)
+	code = app.Run(ctx, args)
 	return code, out.String(), errOut.String()
 }
 

@@ -3,18 +3,22 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"reflect"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/robfig/cron/v3"
 	"go.yaml.in/yaml/v3"
 
 	"github.com/PeacexF/seta/internal/core"
 	"github.com/PeacexF/seta/internal/dnsx"
 	"github.com/PeacexF/seta/internal/registry"
+	"github.com/PeacexF/seta/internal/state"
 )
 
 type Options struct {
@@ -205,7 +209,7 @@ func (p *parser) expand(s string) (string, error) {
 
 // notYet names settings from the documented design that this version does
 // not implement, so copying an example gives a clear message.
-var notYet = map[string]bool{"notify": true, "state": true, "schedule": true, "plugins_dir": true, "include": true}
+var notYet = map[string]bool{"plugins_dir": true, "include": true}
 
 var unmarshalerType = reflect.TypeFor[yaml.Unmarshaler]()
 
@@ -348,6 +352,122 @@ func (p *parser) validate(c *Config, root *yaml.Node) {
 	for i := range c.Suppressions {
 		p.suppression(&c.Suppressions[i], item(sups, i), firstLine)
 	}
+
+	p.state(&c.State, value(root, "state"))
+	names := make(map[string]int)
+	nots := value(root, "notify")
+	for i := range c.Notify {
+		p.notifier(&c.Notify[i], item(nots, i), names)
+	}
+	if c.Schedule == "" {
+		c.Schedule = DefaultSchedule
+	} else if _, err := cron.ParseStandard(c.Schedule); err != nil {
+		p.errorf(value(root, "schedule"), "invalid schedule %q: %v (want cron syntax like \"0 */6 * * *\" or \"@every 6h\")", c.Schedule, err)
+	}
+}
+
+func (p *parser) state(s *State, n *yaml.Node) {
+	if s.Path == "" {
+		s.Path = DefaultStatePath
+	}
+	switch {
+	case s.ResolveAfter == 0:
+		s.ResolveAfter = DefaultResolveAfter
+	case s.ResolveAfter < 1:
+		p.errorf(value(n, "resolve_after"), "resolve_after must be at least 1")
+	}
+	if s.Retention == 0 {
+		s.Retention = DefaultRetention
+	} else if time.Duration(s.Retention) < 24*time.Hour {
+		p.errorf(value(n, "retention"), "retention must be at least 1d")
+	}
+}
+
+// notifierFields lists the type-specific fields each type requires and
+// accepts; any other type-specific field is an error.
+var notifierFields = map[string]struct{ required, optional []string }{
+	"telegram": {required: []string{"bot_token", "chat_id"}},
+	"discord":  {required: []string{"webhook"}},
+	"webhook":  {required: []string{"url"}, optional: []string{"secret", "format", "block_private_ips"}},
+}
+
+var telegramToken = regexp.MustCompile(`^[0-9]+:[A-Za-z0-9_-]+$`)
+
+func (p *parser) notifier(nt *Notifier, n *yaml.Node, names map[string]int) {
+	nt.Line = n.Line
+	fields, ok := notifierFields[nt.Type]
+	if !ok {
+		p.errorf(nodeOr(value(n, "type"), n), "unknown notifier type %q (want telegram, discord or webhook)", nt.Type)
+		return
+	}
+	if nt.Name == "" {
+		nt.Name = nt.Type
+	}
+	if line, dup := names[nt.Name]; dup {
+		p.errorf(n, "two notifiers are named %q (the other on line %d); give them distinct names with \"name:\"", nt.Name, line)
+	}
+	names[nt.Name] = n.Line
+
+	for i := 0; i+1 < len(n.Content); i += 2 {
+		k := n.Content[i]
+		if !isTypeField(k.Value) || slices.Contains(fields.required, k.Value) || slices.Contains(fields.optional, k.Value) {
+			continue
+		}
+		p.errorf(k, "%q does not apply to %s notifiers", k.Value, nt.Type)
+	}
+	for _, f := range fields.required {
+		if v := value(n, f); v == nil || v.Value == "" {
+			p.errorf(nodeOr(v, n), "%s notifier needs %q", nt.Type, f)
+		}
+	}
+
+	on := value(n, "on")
+	for i, k := range nt.On {
+		if _, ok := state.ParseKind(k); !ok {
+			p.errorf(item(on, i), "unknown change %q in on (want new, regressed, resolved or persisting)", k)
+		}
+	}
+	if nt.MinSeverity != "" {
+		sev, err := core.ParseSeverity(nt.MinSeverity)
+		if err != nil {
+			p.errorf(value(n, "min_severity"), "%v", err)
+		}
+		nt.Severity = sev
+	}
+	if nt.Heartbeat != 0 && time.Duration(nt.Heartbeat) < time.Hour {
+		p.errorf(value(n, "heartbeat"), "heartbeat must be at least 1h")
+	}
+
+	switch nt.Type {
+	case "telegram":
+		if nt.BotToken != "" && !telegramToken.MatchString(nt.BotToken) {
+			p.errorf(value(n, "bot_token"), "bot_token doesn't look like a Telegram bot token (123456:ABC-...)")
+		}
+	case "discord":
+		if nt.Webhook != "" && !discordWebhook.MatchString(nt.Webhook) {
+			p.errorf(value(n, "webhook"), "webhook must be a Discord webhook URL (https://discord.com/api/webhooks/...)")
+		}
+	case "webhook":
+		if nt.URL != "" {
+			if u, err := url.Parse(nt.URL); err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+				p.errorf(value(n, "url"), "url must be an http(s) URL")
+			}
+		}
+		if nt.Format != "" && nt.Format != "json" {
+			p.errorf(value(n, "format"), "unknown format %q (only json is supported)", nt.Format)
+		}
+	}
+}
+
+var discordWebhook = regexp.MustCompile(`^https://(discord\.com|discordapp\.com|ptb\.discord\.com|canary\.discord\.com)/api/webhooks/[0-9]+/[A-Za-z0-9_-]+$`)
+
+func isTypeField(key string) bool {
+	for _, f := range notifierFields {
+		if slices.Contains(f.required, key) || slices.Contains(f.optional, key) {
+			return true
+		}
+	}
+	return false
 }
 
 func validResolver(spec string) error {

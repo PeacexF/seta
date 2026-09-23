@@ -3,6 +3,8 @@ package config
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"go.yaml.in/yaml/v3"
@@ -27,6 +29,10 @@ type Config struct {
 	// SeverityOverrides is keyed by canonical check ID after loading.
 	SeverityOverrides SeverityOverrides `yaml:"severity_overrides"`
 	Suppressions      []Suppression     `yaml:"suppressions"`
+
+	State    State      `yaml:"state"`
+	Notify   []Notifier `yaml:"notify"`
+	Schedule string     `yaml:"schedule"`
 
 	// Path is the file the config was loaded from, as given.
 	Path string `yaml:"-"`
@@ -78,6 +84,48 @@ type Suppression struct {
 	ids  map[string]bool
 }
 
+// Defaults for the daemon settings.
+const (
+	DefaultStatePath    = "seta-state.db"
+	DefaultResolveAfter = 2
+	DefaultRetention    = Duration(90 * 24 * time.Hour)
+	DefaultSchedule     = "0 */6 * * *"
+)
+
+type State struct {
+	Path string `yaml:"path"`
+	// ResolveAfter is how many consecutive runs a finding must be absent
+	// from before it is reported resolved.
+	ResolveAfter int      `yaml:"resolve_after"`
+	Retention    Duration `yaml:"retention"`
+}
+
+// Notifier is one notification channel. Which fields apply depends on Type;
+// loading rejects fields meant for other types.
+type Notifier struct {
+	Type string `yaml:"type"`
+	// Name identifies the notifier in logs and 'seta notify test'; it
+	// defaults to Type.
+	Name        string   `yaml:"name"`
+	On          []string `yaml:"on"`
+	MinSeverity string   `yaml:"min_severity"`
+	// Heartbeat sends an all-clear message when nothing was sent for this long.
+	Heartbeat Duration `yaml:"heartbeat"`
+
+	BotToken string `yaml:"bot_token"` // telegram
+	ChatID   string `yaml:"chat_id"`   // telegram
+	Webhook  string `yaml:"webhook"`   // discord
+
+	URL             string `yaml:"url"`               // webhook
+	Secret          string `yaml:"secret"`            // webhook
+	Format          string `yaml:"format"`            // webhook
+	BlockPrivateIPs bool   `yaml:"block_private_ips"` // webhook
+
+	Line int `yaml:"-"`
+	// Severity is MinSeverity parsed; unset means all.
+	Severity core.Severity `yaml:"-"`
+}
+
 // CheckPatterns returns the selection patterns that apply to t.
 func (c *Config) CheckPatterns(t Target) []string {
 	if t.Checks != nil {
@@ -106,20 +154,38 @@ func (s Suppression) Expired(now time.Time) bool {
 	return !s.Expires.IsZero() && !now.Before(s.Expires.Time)
 }
 
-// Duration accepts Go duration strings such as "5s" or "1m30s". Bare numbers
-// are rejected because their unit would be a guess.
+// Duration accepts Go duration strings such as "5s" or "1m30s", whole days
+// ("90d"), "daily" and "weekly". Bare numbers are rejected because their
+// unit would be a guess.
 type Duration time.Duration
 
 func (d *Duration) UnmarshalYAML(n *yaml.Node) error {
-	v, err := time.ParseDuration(n.Value)
+	v, err := parseDuration(n.Value)
 	if n.Kind != yaml.ScalarNode || err != nil {
-		return typeError(n, "invalid duration %q: want a value with a unit, like 10s or 1m", n.Value)
+		return typeError(n, "invalid duration %q: want a value with a unit, like 10s, 1m or 7d", n.Value)
 	}
 	if v < 0 {
 		return typeError(n, "duration %q must not be negative", n.Value)
 	}
 	*d = Duration(v)
 	return nil
+}
+
+func parseDuration(s string) (time.Duration, error) {
+	switch s {
+	case "daily":
+		return 24 * time.Hour, nil
+	case "weekly":
+		return 7 * 24 * time.Hour, nil
+	}
+	if days, ok := strings.CutSuffix(s, "d"); ok {
+		n, err := strconv.Atoi(days)
+		if err != nil {
+			return 0, err
+		}
+		return time.Duration(n) * 24 * time.Hour, nil
+	}
+	return time.ParseDuration(s)
 }
 
 type SeverityOverrides map[string]core.Severity

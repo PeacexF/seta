@@ -59,6 +59,8 @@ type Result struct {
 	Targets  []core.Target
 	// Executions is the number of (target, check) pairs that ran.
 	Executions int
+	// Ran lists those pairs in job order, including ones that errored.
+	Ran []Execution
 	// Findings are sorted by target, severity (highest first), check ID, subject.
 	Findings []core.Finding
 	// Errors are sorted by target and check ID.
@@ -78,6 +80,11 @@ type Suppressed struct {
 	Reason string
 	// Expires is zero when the suppression does not expire.
 	Expires time.Time
+}
+
+type Execution struct {
+	Target  string
+	CheckID string
 }
 
 // CheckError records a check that could not reach a verdict.
@@ -127,6 +134,7 @@ func (e *Engine) Run(ctx context.Context, jobs []Job) *Result {
 		perTarget := make(chan struct{}, orDefault(e.PerTarget, DefaultPerTarget))
 		for _, c := range job.Checks {
 			res.Executions++
+			res.Ran = append(res.Ran, Execution{Target: job.Target.Name, CheckID: c.Meta().ID})
 			metas[c.Meta().ID] = c.Meta()
 			wg.Go(func() {
 				// Acquire the per-target slot first so a busy target doesn't

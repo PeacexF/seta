@@ -67,6 +67,37 @@
       "description": "Findings you accept. Each needs a reason; expired suppressions stop applying and are warned about.",
       "type": "array",
       "items": { "$ref": "#/$defs/suppression" }
+    },
+    "state": {
+      "description": "Where 'seta daemon' keeps findings between runs.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "description": "SQLite database file (default seta-state.db).",
+          "type": "string",
+          "minLength": 1
+        },
+        "resolve_after": {
+          "description": "Runs a finding must be absent from before it is reported resolved (default 2), so a flaky answer doesn't send \"resolved\" followed by \"new\".",
+          "type": "integer",
+          "minimum": 1
+        },
+        "retention": {
+          "description": "How long run history and resolved findings are kept (default 90d).",
+          "$ref": "#/$defs/duration"
+        }
+      }
+    },
+    "notify": {
+      "description": "Where 'seta daemon' sends a digest of each run's changes.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/notifier" }
+    },
+    "schedule": {
+      "description": "When 'seta daemon' runs, in cron syntax (default \"0 */6 * * *\"). Also accepts @hourly, @daily and @every 6h; prefix CRON_TZ=Europe/Berlin for a time zone.",
+      "type": "string",
+      "examples": ["0 */6 * * *", "@every 1h"]
     }
   },
   "$defs": {
@@ -142,6 +173,50 @@
         }
       }
     },
+    "notifier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": { "enum": ["telegram", "discord", "webhook"] },
+        "name": {
+          "description": "Identifies the notifier in logs and 'seta notify test' (default: the type).",
+          "type": "string",
+          "minLength": 1
+        },
+        "on": {
+          "description": "Changes to send (default new, regressed, resolved).",
+          "type": "array",
+          "items": { "enum": ["new", "regressed", "resolved", "persisting"] }
+        },
+        "min_severity": {
+          "description": "Only send findings at or above this severity.",
+          "$ref": "#/$defs/severity"
+        },
+        "heartbeat": {
+          "description": "Send an all-clear message when nothing was sent for this long, e.g. weekly.",
+          "$ref": "#/$defs/duration"
+        },
+        "bot_token": { "description": "Telegram bot token from @BotFather. Use ${VAR}.", "type": "string" },
+        "chat_id": { "description": "Telegram chat, group or channel ID.", "type": ["string", "integer"] },
+        "webhook": { "description": "Discord webhook URL. Use ${VAR}.", "type": "string" },
+        "url": { "description": "URL the JSON payload is POSTed to.", "type": "string" },
+        "secret": {
+          "description": "Signs each payload: X-Seta-Signature-256: sha256=HMAC-SHA256(secret, body).",
+          "type": "string"
+        },
+        "format": { "const": "json" },
+        "block_private_ips": {
+          "description": "Refuse to connect to private, loopback and link-local addresses.",
+          "$ref": "#/$defs/boolean"
+        }
+      },
+      "allOf": [
+        { "if": { "properties": { "type": { "const": "telegram" } } }, "then": { "required": ["bot_token", "chat_id"] } },
+        { "if": { "properties": { "type": { "const": "discord" } } }, "then": { "required": ["webhook"] } },
+        { "if": { "properties": { "type": { "const": "webhook" } } }, "then": { "required": ["url"] } }
+      ]
+    },
     "checkId": {
       "type": "string",
       "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$"
@@ -163,8 +238,8 @@
     },
     "duration": {
       "type": "string",
-      "pattern": "^([0-9]+(\\.[0-9]*)?(ns|us|µs|ms|s|m|h))+$",
-      "examples": ["5s", "1m30s"]
+      "pattern": "^(([0-9]+(\\.[0-9]*)?(ns|us|µs|ms|s|m|h))+|[0-9]+d|daily|weekly)$",
+      "examples": ["5s", "1m30s", "7d", "weekly"]
     },
     "boolean": {
       "anyOf": [

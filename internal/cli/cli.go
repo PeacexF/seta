@@ -119,6 +119,8 @@ func (a *App) rootCommand() *cobra.Command {
 		a.baselineCommand(),
 		a.configCommand(),
 		a.initCommand(),
+		a.daemonCommand(),
+		a.notifyCommand(),
 	)
 	return root
 }

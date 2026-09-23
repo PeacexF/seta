@@ -1,0 +1,49 @@
+# Runs 'seta daemon' as a hardened systemd service.
+#
+#   install -m 755 seta /usr/local/bin/seta
+#   install -D -m 644 seta.yaml /etc/seta/seta.yaml
+#   install -m 600 /dev/null /etc/seta/env    # secrets: SETA_TG_TOKEN=...
+#   cp seta.service /etc/systemd/system/ && systemctl enable --now seta
+#   journalctl -u seta -f
+[Unit]
+Description=Seta posture monitoring
+Documentation=https://github.com/PeacexF/seta
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/seta daemon -c /etc/seta/seta.yaml --state /var/lib/seta/state.db
+EnvironmentFile=-/etc/seta/env
+DynamicUser=yes
+StateDirectory=seta
+Restart=on-failure
+RestartSec=30s
+# Seta lets a run in progress finish for up to a minute after SIGTERM.
+TimeoutStopSec=90s
+
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+# Fail disallowed system calls instead of killing the process.
+SystemCallErrorNumber=EPERM
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,25 @@
+# Runs 'seta daemon' with Docker Compose.
+#
+# Put seta.yaml next to this file, and the secrets it references as ${VAR}
+# (e.g. SETA_TG_TOKEN) in .env. Then:
+#
+#   docker compose run --rm seta notify test -c /etc/seta/seta.yaml
+#   docker compose up -d
+#   docker compose logs -f seta
+services:
+  seta:
+    image: ghcr.io/peacexf/seta:latest
+    command: ["daemon", "-c", "/etc/seta/seta.yaml", "--log-format", "json"]
+    volumes:
+      - ./seta.yaml:/etc/seta/seta.yaml:ro
+      # The state database; keep it, or every finding is "new" again.
+      - seta-state:/var/lib/seta
+    env_file: .env
+    restart: unless-stopped
+    # Seta lets a run in progress finish for up to a minute after SIGTERM.
+    stop_grace_period: 90s
+    # To expose /healthz, add "--listen", ":9090" to command and:
+    # ports: ["127.0.0.1:9090:9090"]
+
+volumes:
+  seta-state:
