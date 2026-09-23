@@ -21,7 +21,9 @@
       "medium": 0
     },
     "check_errors": 1,
-    "checks_run": 6
+    "checks_run": 6,
+    "suppressed": 1,
+    "baselined": 1
   },
   "findings": [
     {
@@ -70,6 +72,38 @@
       "check_id": "email.mx.missing",
       "target": "flaky.test",
       "error": "lookup MX flaky.test: server responded SERVFAIL"
+    }
+  ],
+  "suppressed": [
+    {
+      "fingerprint": "f621c715e73c168a141142aac779eb35",
+      "check_id": "email.mtasts.missing",
+      "target": "clean.test",
+      "subject": "",
+      "severity": "low",
+      "title": "No MTA-STS policy",
+      "evidence": {},
+      "remediation": "Publish a policy.",
+      "references": [],
+      "suppression": {
+        "reason": "Receives no mail | legacy",
+        "expires": "2027-01-01"
+      }
+    }
+  ],
+  "baselined": [
+    {
+      "fingerprint": "1405c3678b2144f48a083fc27c3989a7",
+      "check_id": "email.dmarc.policy_none",
+      "target": "broken.test",
+      "subject": "",
+      "severity": "medium",
+      "title": "DMARC policy is none",
+      "evidence": {
+        "record": "v=DMARC1; p=none"
+      },
+      "remediation": "",
+      "references": []
     }
   ]
 }

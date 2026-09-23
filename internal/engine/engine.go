@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"runtime/debug"
 	"slices"
 	"strings"
@@ -62,6 +63,21 @@ type Result struct {
 	Findings []core.Finding
 	// Errors are sorted by target and check ID.
 	Errors []CheckError
+	// Checks describes every check that ran, sorted by ID.
+	Checks []core.Meta
+
+	// Suppressed and Baselined hold findings that post-processing moved out
+	// of Findings (config suppressions, a CI baseline); Run leaves them empty.
+	Suppressed []Suppressed
+	Baselined  []core.Finding
+}
+
+// Suppressed is a finding the config accepts.
+type Suppressed struct {
+	core.Finding
+	Reason string
+	// Expires is zero when the suppression does not expire.
+	Expires time.Time
 }
 
 // CheckError records a check that could not reach a verdict.
@@ -105,11 +121,13 @@ func (e *Engine) Run(ctx context.Context, jobs []Job) *Result {
 		wg     sync.WaitGroup
 		global = make(chan struct{}, orDefault(e.Workers, DefaultWorkers))
 	)
+	metas := make(map[string]core.Meta)
 	for _, job := range jobs {
 		res.Targets = append(res.Targets, job.Target)
 		perTarget := make(chan struct{}, orDefault(e.PerTarget, DefaultPerTarget))
 		for _, c := range job.Checks {
 			res.Executions++
+			metas[c.Meta().ID] = c.Meta()
 			wg.Go(func() {
 				// Acquire the per-target slot first so a busy target doesn't
 				// hold global slots while it waits.
@@ -132,7 +150,10 @@ func (e *Engine) Run(ctx context.Context, jobs []Job) *Result {
 	wg.Wait()
 	res.Duration = now().Sub(res.Started)
 
-	slices.SortFunc(res.Findings, compareFindings)
+	for _, id := range slices.Sorted(maps.Keys(metas)) {
+		res.Checks = append(res.Checks, metas[id])
+	}
+	slices.SortFunc(res.Findings, CompareFindings)
 	slices.SortFunc(res.Errors, func(a, b CheckError) int {
 		return cmp.Or(strings.Compare(a.Target, b.Target), strings.Compare(a.CheckID, b.CheckID))
 	})
@@ -233,7 +254,9 @@ func normalize(meta core.Meta, t core.Target, findings []core.Finding) ([]core.F
 	return out, nil
 }
 
-func compareFindings(a, b core.Finding) int {
+// CompareFindings orders findings by target, severity (highest first),
+// check ID and subject, the order Result.Findings is in.
+func CompareFindings(a, b core.Finding) int {
 	return cmp.Or(
 		strings.Compare(a.Target, b.Target),
 		cmp.Compare(b.Severity, a.Severity),

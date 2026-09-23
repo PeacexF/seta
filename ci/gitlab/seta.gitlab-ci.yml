@@ -1,0 +1,52 @@
+# Seta for GitLab CI. Include it from a tag and adjust the variables:
+#
+#   include:
+#     - remote: https://raw.githubusercontent.com/PeacexF/seta/v0.2.0/ci/gitlab/seta.gitlab-ci.yml
+#   variables:
+#     SETA_FAIL_ON: high
+#     SETA_BASELINE: .seta-baseline.json
+#
+# The job log shows the report; seta-report.json and seta-report.md are kept
+# as artifacts.
+
+variables:
+  SETA_VERSION: latest
+  SETA_CONFIG: seta.yaml
+  SETA_BASELINE: ""
+  SETA_FAIL_ON: ""
+  SETA_ARGS: ""
+
+seta:
+  stage: test
+  image: alpine:3
+  variables:
+    SETA_REPO: https://github.com/PeacexF/seta
+  before_script:
+    - apk add --no-cache curl
+    - |
+      version=$SETA_VERSION
+      if [ "$version" = latest ]; then
+        version=$(curl -fsSLI -o /dev/null -w '%{url_effective}' "$SETA_REPO/releases/latest")
+        version=${version##*/}
+      fi
+      case $version in v*) ;; *) version=v$version ;; esac
+      case $(uname -m) in aarch64) arch=arm64 ;; *) arch=amd64 ;; esac
+      archive=seta_${version#v}_linux_${arch}.tar.gz
+      cd /tmp
+      curl -fsSLO "$SETA_REPO/releases/download/$version/$archive"
+      curl -fsSLO "$SETA_REPO/releases/download/$version/checksums.txt"
+      grep "  $archive\$" checksums.txt | sha256sum -c -
+      tar -xzf "$archive" -C /usr/local/bin seta
+      cd "$CI_PROJECT_DIR"
+  script:
+    - |
+      set -- --config "$SETA_CONFIG" --report json=seta-report.json --report markdown=seta-report.md
+      if [ -n "$SETA_BASELINE" ]; then set -- "$@" --baseline "$SETA_BASELINE"; fi
+      if [ -n "$SETA_FAIL_ON" ]; then set -- "$@" --fail-on "$SETA_FAIL_ON"; fi
+      # SETA_ARGS is split on whitespace.
+      seta run "$@" $SETA_ARGS
+  artifacts:
+    when: always
+    paths:
+      - seta-report.json
+      - seta-report.md

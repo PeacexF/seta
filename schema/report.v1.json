@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/PeacexF/seta/main/schema/report.v1.json",
+  "title": "Seta JSON report (schema 1)",
+  "description": "Output of --format json. Stable: fields may be added, but breaking changes bump \"schema\".",
+  "type": "object",
+  "required": ["schema", "tool", "started_at", "duration_ms", "targets", "summary", "findings", "errors", "suppressed", "baselined"],
+  "properties": {
+    "schema": { "const": 1 },
+    "tool": {
+      "type": "object",
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "const": "seta" },
+        "version": { "type": "string" }
+      }
+    },
+    "started_at": { "type": "string", "format": "date-time" },
+    "duration_ms": { "type": "integer", "minimum": 0 },
+    "targets": { "type": "array", "items": { "type": "string" } },
+    "summary": {
+      "type": "object",
+      "required": ["findings", "by_severity", "check_errors", "checks_run", "suppressed", "baselined"],
+      "properties": {
+        "findings": { "type": "integer", "minimum": 0 },
+        "by_severity": {
+          "type": "object",
+          "required": ["info", "low", "medium", "high", "critical"],
+          "propertyNames": { "$ref": "#/$defs/severity" },
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        },
+        "check_errors": { "type": "integer", "minimum": 0 },
+        "checks_run": { "type": "integer", "minimum": 0 },
+        "suppressed": { "type": "integer", "minimum": 0 },
+        "baselined": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "findings": {
+      "description": "Findings that need attention: not suppressed and not in the baseline.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/finding" }
+    },
+    "errors": {
+      "description": "Checks that could not reach a verdict. Errors are never findings.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["check_id", "target", "error"],
+        "properties": {
+          "check_id": { "type": "string" },
+          "target": { "type": "string" },
+          "error": { "type": "string" }
+        }
+      }
+    },
+    "suppressed": {
+      "description": "Findings accepted by a suppression in the config.",
+      "type": "array",
+      "items": {
+        "allOf": [{ "$ref": "#/$defs/finding" }],
+        "required": ["suppression"],
+        "properties": {
+          "suppression": {
+            "type": "object",
+            "required": ["reason", "expires"],
+            "properties": {
+              "reason": { "type": "string" },
+              "expires": {
+                "type": ["string", "null"],
+                "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+              }
+            }
+          }
+        }
+      }
+    },
+    "baselined": {
+      "description": "Findings listed in the baseline passed with --baseline.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/finding" }
+    }
+  },
+  "$defs": {
+    "severity": { "enum": ["info", "low", "medium", "high", "critical"] },
+    "finding": {
+      "type": "object",
+      "required": ["fingerprint", "check_id", "target", "subject", "severity", "title", "evidence", "remediation", "references"],
+      "properties": {
+        "fingerprint": {
+          "description": "Stable identity derived from check_id, target and subject.",
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "check_id": { "type": "string" },
+        "target": { "type": "string" },
+        "subject": {
+          "description": "What within the target the finding is about; empty for the domain itself.",
+          "type": "string"
+        },
+        "severity": { "$ref": "#/$defs/severity" },
+        "title": { "type": "string" },
+        "evidence": { "type": "object", "additionalProperties": { "type": "string" } },
+        "remediation": { "type": "string" },
+        "references": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

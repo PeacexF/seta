@@ -88,5 +88,7 @@ export SETA_SPAMHAUS_DQS_KEY=your-key
 
 | Code | Meaning |
 |---|---|
-| `0` | The scan completed (whether or not there were findings) |
+| `0` | The scan completed; by default `scan` exits 0 whether or not there were findings |
+| `1` | Findings at or above `--fail-on <severity>` |
 | `2` | Usage error, or no trustworthy DNS resolver |
+| `3` | Some checks could not complete and `--strict` was set |

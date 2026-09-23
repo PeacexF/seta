@@ -3,7 +3,6 @@ package cli
 import (
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"strings"
 
@@ -11,15 +10,12 @@ import (
 
 	"github.com/PeacexF/seta/internal/core"
 	"github.com/PeacexF/seta/internal/engine"
-	"github.com/PeacexF/seta/internal/report"
 	"github.com/PeacexF/seta/internal/version"
 )
 
 type scanFlags struct {
 	active    bool
 	only      []string
-	format    string
-	output    string
 	selectors []string
 }
 
@@ -27,6 +23,7 @@ func (a *App) scanCommand() *cobra.Command {
 	var (
 		rf resolverFlags
 		sf scanFlags
+		of outputFlags
 	)
 	cmd := &cobra.Command{
 		Use:   "scan <domain>...",
@@ -45,23 +42,19 @@ func (a *App) scanCommand() *cobra.Command {
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return a.runScan(cmd, args, rf, sf)
+			return a.runScan(cmd, args, rf, sf, of)
 		},
 	}
 	f := cmd.Flags()
 	f.BoolVar(&sf.active, "active", false, "also run active checks, which connect to the domain's servers")
 	f.StringSliceVar(&sf.only, "only", nil, "run only checks matching these patterns (e.g. 'email.spf.*', '!email.dnsbl.*')")
-	f.StringVarP(&sf.format, "format", "f", "table", "output format: table or json")
-	f.StringVarP(&sf.output, "output", "o", "", "write the report to a file instead of stdout")
 	f.StringSliceVar(&sf.selectors, "dkim-selector", nil, "DKIM selectors to check (default: try common selector names)")
+	of.register(cmd, "none")
 	rf.register(cmd)
 	return cmd
 }
 
-func (a *App) runScan(cmd *cobra.Command, args []string, rf resolverFlags, sf scanFlags) error {
-	if sf.format != "table" && sf.format != "json" {
-		return &exitError{code: ExitUsage, err: fmt.Errorf("unknown --format %q (want table or json)", sf.format)}
-	}
+func (a *App) runScan(cmd *cobra.Command, args []string, rf resolverFlags, sf scanFlags, of outputFlags) error {
 	targets, err := parseTargets(args)
 	if err != nil {
 		return &exitError{code: ExitUsage, err: err}
@@ -76,19 +69,15 @@ func (a *App) runScan(cmd *cobra.Command, args []string, rf resolverFlags, sf sc
 			SpamhausDQSKey: os.Getenv("SETA_SPAMHAUS_DQS_KEY"),
 		}
 	}
+	s, err := a.openSession(cmd, of)
+	if err != nil {
+		return err
+	}
+	defer s.close()
 
 	resolver, err := a.setupResolver(cmd.Context(), rf)
 	if err != nil {
 		return err
-	}
-	var out io.Writer = cmd.OutOrStdout()
-	if sf.output != "" {
-		file, err := os.Create(sf.output)
-		if err != nil {
-			return &exitError{code: ExitUsage, err: err}
-		}
-		defer file.Close()
-		out = file
 	}
 	jobs := make([]engine.Job, len(targets))
 	for i, t := range targets {
@@ -98,30 +87,12 @@ func (a *App) runScan(cmd *cobra.Command, args []string, rf resolverFlags, sf sc
 	eng.Net.UserAgent = version.UserAgent()
 	res := eng.Run(cmd.Context(), jobs)
 
-	if sf.format == "json" {
-		err = report.JSON(out, res)
-	} else {
-		var notes []string
-		if skippedActive > 0 {
-			notes = append(notes, fmt.Sprintf("%s not run (e.g. STARTTLS); pass --active to connect to mail servers.",
-				plural(skippedActive, "active check")))
-		}
-		err = report.Table(out, res, report.Options{Color: sf.output == "" && a.useColor(out), Notes: notes})
+	var notes []string
+	if skippedActive > 0 {
+		notes = append(notes, fmt.Sprintf("%s not run (e.g. STARTTLS); pass --active to connect to mail servers.",
+			plural(skippedActive, "active check")))
 	}
-	if err != nil {
-		return err
-	}
-	if sf.output != "" {
-		return closeErr(out)
-	}
-	return nil
-}
-
-func closeErr(w io.Writer) error {
-	if c, ok := w.(io.Closer); ok {
-		return c.Close()
-	}
-	return nil
+	return a.finish(s, res, notes, nil)
 }
 
 // selectChecks applies --only and drops active checks unless --active is

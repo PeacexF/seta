@@ -20,6 +20,11 @@ type Options struct {
 	Color bool
 	// Notes are printed above the summary, e.g. that active checks were skipped.
 	Notes []string
+	// Source is where targets are declared, for SARIF locations.
+	Source *Source
+	// Baseline says findings were compared against a baseline, so the ones
+	// left in Findings are new.
+	Baseline bool
 }
 
 // Table writes a human-readable report grouped by target, highest severity
@@ -49,6 +54,8 @@ func Table(w io.Writer, res *engine.Result, opts Options) error {
 		if n == 0 {
 			if errs := errorsFor(res, t.Name); errs > 0 {
 				b.WriteString("  " + p.yellow(fmt.Sprintf("no findings, but %s could not complete", plural(errs, "check"))) + "\n")
+			} else if hidden := hiddenFor(res, t.Name); hidden > 0 {
+				b.WriteString("  " + p.green(fmt.Sprintf("✓ no new findings (%d suppressed or in baseline)", hidden)) + "\n")
 			} else {
 				b.WriteString("  " + p.green("✓ no findings") + "\n")
 			}
@@ -112,6 +119,12 @@ func summary(res *engine.Result) string {
 		findings += " (" + strings.Join(bySeverity, ", ") + ")"
 	}
 	parts := []string{findings}
+	if n := len(res.Suppressed); n > 0 {
+		parts = append(parts, fmt.Sprintf("%d suppressed", n))
+	}
+	if n := len(res.Baselined); n > 0 {
+		parts = append(parts, fmt.Sprintf("%d in baseline", n))
+	}
 	if len(res.Errors) > 0 {
 		parts = append(parts, plural(len(res.Errors), "check error"))
 	}
@@ -127,6 +140,22 @@ func errorsFor(res *engine.Result, target string) int {
 	n := 0
 	for _, e := range res.Errors {
 		if e.Target == target {
+			n++
+		}
+	}
+	return n
+}
+
+// hiddenFor counts target's findings that were suppressed or baselined.
+func hiddenFor(res *engine.Result, target string) int {
+	n := 0
+	for _, s := range res.Suppressed {
+		if s.Target == target {
+			n++
+		}
+	}
+	for _, f := range res.Baselined {
+		if f.Target == target {
 			n++
 		}
 	}

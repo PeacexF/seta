@@ -42,6 +42,26 @@ dockers_v2:
       org.opencontainers.image.revision: "{{ .FullCommit }}"
       org.opencontainers.image.licenses: Apache-2.0
 
+# Needs the PeacexF/homebrew-tap repository and a HOMEBREW_TAP_GITHUB_TOKEN
+# secret that can push to it.
+homebrew_casks:
+  - repository:
+      owner: PeacexF
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: https://github.com/PeacexF/seta
+    description: Posture monitoring as code for public-facing infrastructure
+    license: Apache-2.0
+    # Prereleases stay out of the tap.
+    skip_upload: auto
+    hooks:
+      post:
+        # The binaries aren't notarized; without this macOS refuses to run them.
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/seta"]
+          end
+
 changelog:
   sort: asc
   filters:

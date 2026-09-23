@@ -1,0 +1,37 @@
+# yaml-language-server: $schema=../../../schema/config.v1.json
+version: 1
+
+resolver:
+  servers: [doh, 9.9.9.9]
+  timeout: 3s
+
+defaults:
+  check_timeout: 20s
+
+targets:
+  - domain: example.com
+    checks: ["email.*", "!email.dnsbl.*"]
+    active: true
+    email:
+      dkim_selectors: [google, s1]
+      expected_mx:
+        - ASPMX.L.GOOGLE.COM.
+        - "*.mail.protection.outlook.com"
+      dnsbls: [bl.spamcop.net]
+  - domain: ${SETA_DOMAIN}
+    checks: ["email.spf.*"]
+    active: ${SETA_ACTIVE}
+  - domain: bücher.example
+
+severity_overrides:
+  email.dmarc.policy_none: low
+
+suppressions:
+  - check: email.mtasts.missing
+    target: example.com
+    reason: "Legacy domain, receives no mail"
+    expires: 2027-01-01
+  - check: "email.dkim.*"
+    target: example.org
+    subject: "selector:k1"
+    reason: "Rotating the key with the provider"

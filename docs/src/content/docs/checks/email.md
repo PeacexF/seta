@@ -22,6 +22,7 @@ Run `seta checks explain <id>` for the same text in your terminal.
 | [`email.mtasts.testing`](#emailmtaststesting) | passive | info | MTA-STS policy is in testing mode |
 | [`email.mx.fcrdns`](#emailmxfcrdns) | passive | low | MX host lacks forward-confirmed reverse DNS |
 | [`email.mx.missing`](#emailmxmissing) | passive | high | No MX records |
+| [`email.mx.unexpected`](#emailmxunexpected) | passive | medium | MX records differ from the expected set |
 | [`email.mx.unresolvable`](#emailmxunresolvable) | passive | high | MX host does not resolve |
 | [`email.spf.lookup_limit`](#emailspflookup_limit) | passive | high | SPF exceeds the 10 DNS lookup limit |
 | [`email.spf.missing`](#emailspfmissing) | passive | high | No SPF record |
@@ -197,6 +198,18 @@ The domain publishes no MX records. Senders then fall back to the domain's A/AAA
 
 - <https://www.rfc-editor.org/rfc/rfc5321#section-5.1>
 - <https://www.rfc-editor.org/rfc/rfc7505>
+
+## email.mx.unexpected
+
+**MX records differ from the expected set** · passive · default severity **medium**
+
+The domain's MX hosts don't match the expected_mx list in the config: a host is published that isn't expected, or an expected host is missing. An unexpected MX host can receive (and read) the domain's mail, and is a common sign of a hijacked DNS zone or a forgotten migration. Only runs when expected_mx is configured.
+
+**How to fix:** If the change was intended, update expected_mx in the config. Otherwise restore the MX records and find out who changed the zone.
+
+**References:**
+
+- <https://www.rfc-editor.org/rfc/rfc5321#section-5.1>
 
 ## email.mx.unresolvable
 

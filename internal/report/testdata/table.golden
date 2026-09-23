@@ -9,7 +9,7 @@ broken.test
   LOW       email.mx.fcrdns           MX host lacks forward-confirmed reverse DNS (mx2.broken.test)
 
 clean.test
-  ✓ no findings
+  ✓ no new findings (1 suppressed or in baseline)
 
 flaky.test
   no findings, but 1 check could not complete
@@ -18,4 +18,4 @@ Check errors (1)
   These checks could not reach a verdict; they are not findings.
   flaky.test  email.mx.missing  lookup MX flaky.test: server responded SERVFAIL
 
-3 findings (1 critical, 1 high, 1 low) · 1 check error · 6 checks on 3 targets · 1.23s
+3 findings (1 critical, 1 high, 1 low) · 1 suppressed · 1 in baseline · 1 check error · 6 checks on 3 targets · 1.23s

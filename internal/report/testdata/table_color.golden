@@ -9,7 +9,7 @@
   [36mLOW     [0m  email.mx.fcrdns           MX host lacks forward-confirmed reverse DNS (mx2.broken.test)
 
 [1mclean.test[0m
-  [32m✓ no findings[0m
+  [32m✓ no new findings (1 suppressed or in baseline)[0m
 
 [1mflaky.test[0m
   [33mno findings, but 1 check could not complete[0m
@@ -20,4 +20,4 @@
 
 [2mActive checks were not run.[0m
 
-3 findings (1 critical, 1 high, 1 low) · 1 check error · 6 checks on 3 targets · 1.23s
+3 findings (1 critical, 1 high, 1 low) · 1 suppressed · 1 in baseline · 1 check error · 6 checks on 3 targets · 1.23s

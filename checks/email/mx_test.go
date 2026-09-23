@@ -75,3 +75,46 @@ func TestMXMissingErrorsAreNotFindings(t *testing.T) {
 		}
 	})
 }
+
+func TestMXUnexpected(t *testing.T) {
+	fixtures := checktest.Fixtures(t)
+	tests := []struct {
+		domain   string
+		expected []string
+		want     []string // "subject: title"
+	}{
+		{domain: "mx-ok.test"},
+		{domain: "mx-ok.test", expected: []string{"mx1.mx-ok.test", "mx2.mx-ok.test"}},
+		{domain: "mx-ok.test", expected: []string{"*.mx-ok.test"}},
+		{domain: "mx-ok.test", expected: []string{"mx1.mx-ok.test", "mx.other.test"}, want: []string{
+			"mx.other.test: Expected MX host missing", "mx2.mx-ok.test: Unexpected MX host",
+		}},
+		{domain: "mx-ok.test", expected: []string{"*.other.test"}, want: []string{
+			"*.other.test: Expected MX host missing", "mx1.mx-ok.test: Unexpected MX host", "mx2.mx-ok.test: Unexpected MX host",
+		}},
+		{domain: "mx-null.test", expected: []string{"mx.mx-null.test"}, want: []string{"mx.mx-null.test: Expected MX host missing"}},
+		{domain: "mx-none.test", expected: []string{"mx.mx-none.test"}, want: []string{"mx.mx-none.test: Expected MX host missing"}},
+	}
+	for _, tt := range tests {
+		target := checktest.Domain(t, tt.domain)
+		target.Email.ExpectedMX = tt.expected
+		findings, err := checktest.RunWith(t, Check("email.mx.unexpected"), checktest.Env{Resolver: fixtures}, target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got []string
+		for _, f := range findings {
+			got = append(got, f.Subject+": "+f.Title)
+		}
+		if strings.Join(got, "\n") != strings.Join(tt.want, "\n") {
+			t.Errorf("%s %v: got %q, want %q", tt.domain, tt.expected, got, tt.want)
+		}
+	}
+
+	target := checktest.Domain(t, "mx-null.test")
+	target.Email.ExpectedMX = []string{"mx.mx-null.test"}
+	findings, _ := checktest.RunWith(t, Check("email.mx.unexpected"), checktest.Env{Resolver: fixtures}, target)
+	if got := findings[0].Evidence["actual"]; !strings.HasPrefix(got, "null MX") {
+		t.Errorf("actual = %q", got)
+	}
+}

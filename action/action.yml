@@ -1,0 +1,85 @@
+name: Seta
+description: Check the public posture of your domains (email authentication, DNS) and report findings to code scanning.
+author: PeacexF
+branding:
+  icon: shield
+  color: purple
+
+inputs:
+  version:
+    description: Seta version to install, e.g. v0.2.0.
+    default: latest
+  config:
+    description: Config file.
+    default: seta.yaml
+  baseline:
+    description: Baseline file (see 'seta baseline'). Only findings missing from it are reported and fail the job.
+    default: ""
+  fail-on:
+    description: Fail on findings at or above this severity (info, low, medium, high, critical, or none). Empty uses the default of 'seta run' (low).
+    default: ""
+  args:
+    description: Extra arguments for 'seta run', split on whitespace.
+    default: ""
+  upload-sarif:
+    description: Upload findings to GitHub code scanning. Needs the security-events write permission.
+    default: "true"
+  sarif-file:
+    description: Where to write the SARIF report.
+    default: seta.sarif
+  category:
+    description: Code scanning category, to tell several Seta runs in one repository apart.
+    default: seta
+  job-summary:
+    description: Add the Markdown report to the job summary.
+    default: "true"
+
+outputs:
+  exit-code:
+    description: Exit code of 'seta run' (0 clean, 1 findings, 2 usage or config error, 3 check errors with --strict).
+    value: ${{ steps.run.outputs.exit-code }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install seta
+      shell: bash
+      env:
+        SETA_VERSION: ${{ inputs.version }}
+      run: |
+        dir="$RUNNER_TEMP/seta-bin"
+        sh "$GITHUB_ACTION_PATH/install.sh" "$SETA_VERSION" "$dir"
+        echo "$dir" >> "$GITHUB_PATH"
+
+    - name: Run seta
+      id: run
+      shell: bash
+      env:
+        CONFIG: ${{ inputs.config }}
+        BASELINE: ${{ inputs.baseline }}
+        FAIL_ON: ${{ inputs.fail-on }}
+        ARGS: ${{ inputs.args }}
+        SARIF: ${{ inputs.sarif-file }}
+        SUMMARY: ${{ inputs.job-summary }}
+      run: |
+        cmd=(seta run --config "$CONFIG" --report "sarif=$SARIF")
+        if [ -n "$BASELINE" ]; then cmd+=(--baseline "$BASELINE"); fi
+        if [ -n "$FAIL_ON" ]; then cmd+=(--fail-on "$FAIL_ON"); fi
+        if [ "$SUMMARY" = true ]; then cmd+=(--report "markdown=$GITHUB_STEP_SUMMARY"); fi
+        read -ra extra <<< "$ARGS"
+        set +e
+        "${cmd[@]}" "${extra[@]}"
+        echo "exit-code=$?" >> "$GITHUB_OUTPUT"
+
+    # Codes 0, 1 and 3 mean the run completed and wrote its reports.
+    - name: Upload SARIF
+      if: inputs.upload-sarif == 'true' && steps.run.outputs.exit-code != '2'
+      uses: github/codeql-action/upload-sarif@v4
+      with:
+        sarif_file: ${{ inputs.sarif-file }}
+        category: ${{ inputs.category }}
+
+    - name: Fail on findings
+      if: steps.run.outputs.exit-code != '0'
+      shell: bash
+      run: exit ${{ steps.run.outputs.exit-code }}

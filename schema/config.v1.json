@@ -1,0 +1,176 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/PeacexF/seta/main/schema/config.v1.json",
+  "title": "Seta configuration (seta.yaml)",
+  "description": "Declares the domains Seta checks and how findings are treated. Values may reference environment variables as ${VAR}; an unset variable is an error.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "targets"],
+  "properties": {
+    "version": {
+      "description": "Config format version.",
+      "const": 1
+    },
+    "resolver": {
+      "description": "DNS resolver used for all checks. Defaults to the system resolver.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "servers": {
+          "description": "Same values as --resolver: \"system\", \"doh\" (DNS over HTTPS), \"dot\" (DNS over TLS), IP[:port], tls://host[:port] or https://host/path.",
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "examples": [["system"], ["doh"], ["1.1.1.1", "9.9.9.9"]]
+        },
+        "timeout": {
+          "description": "Timeout for one query to one server (default 5s).",
+          "$ref": "#/$defs/duration"
+        },
+        "skip_check": {
+          "description": "Don't verify that the resolver answers correctly before running. A resolver that drops records turns existing records into false findings.",
+          "$ref": "#/$defs/boolean"
+        }
+      }
+    },
+    "defaults": {
+      "description": "Settings every target inherits unless it sets its own.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "checks": {
+          "description": "Checks to run (default: all). Globs such as \"email.*\"; a leading \"!\" excludes.",
+          "$ref": "#/$defs/checkPatterns"
+        },
+        "active": {
+          "description": "Run active checks, which connect to the target's servers (default false).",
+          "$ref": "#/$defs/boolean"
+        },
+        "check_timeout": {
+          "description": "Timeout for each check (default 15s).",
+          "$ref": "#/$defs/duration"
+        }
+      }
+    },
+    "targets": {
+      "description": "Domains to check. Only list domains you own or are authorized to test.",
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/target" }
+    },
+    "severity_overrides": {
+      "description": "Report a check's findings at a different severity, by check ID.",
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/checkId" },
+      "additionalProperties": { "$ref": "#/$defs/severity" }
+    },
+    "suppressions": {
+      "description": "Findings you accept. Each needs a reason; expired suppressions stop applying and are warned about.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/suppression" }
+    }
+  },
+  "$defs": {
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["domain"],
+      "properties": {
+        "domain": {
+          "description": "Domain name, e.g. example.com.",
+          "type": "string",
+          "minLength": 1
+        },
+        "checks": {
+          "description": "Checks for this target; replaces defaults.checks.",
+          "$ref": "#/$defs/checkPatterns"
+        },
+        "active": {
+          "description": "Run active checks against this target; overrides defaults.active.",
+          "$ref": "#/$defs/boolean"
+        },
+        "email": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "dkim_selectors": {
+              "description": "DKIM selectors the domain signs with (the s= tag of DKIM-Signature headers). Without them Seta only tries common names.",
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 }
+            },
+            "expected_mx": {
+              "description": "MX hosts the domain should have; email.mx.unexpected reports any difference. A leading \"*.\" matches one label.",
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 }
+            },
+            "dnsbls": {
+              "description": "DNS blocklist zones to query instead of the defaults.",
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
+    "suppression": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["check", "reason"],
+      "properties": {
+        "check": {
+          "description": "Check ID or glob, e.g. email.mtasts.missing or \"email.dkim.*\".",
+          "$ref": "#/$defs/checkPattern"
+        },
+        "target": {
+          "description": "Only suppress findings on this target (one of targets).",
+          "type": "string",
+          "minLength": 1
+        },
+        "subject": {
+          "description": "Only suppress findings about this subject, e.g. an MX host or \"selector:s1\".",
+          "type": "string",
+          "minLength": 1
+        },
+        "reason": {
+          "description": "Why the finding is accepted.",
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "expires": {
+          "description": "Date (YYYY-MM-DD) on which the suppression stops applying.",
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        }
+      }
+    },
+    "checkId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$"
+    },
+    "checkPattern": {
+      "type": "string",
+      "pattern": "^[a-z0-9_.*?]+$"
+    },
+    "checkPatterns": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^!?[a-z0-9_.*?]+$"
+      },
+      "examples": [["email.*"], ["email.*", "!email.dnsbl.*"]]
+    },
+    "severity": {
+      "enum": ["info", "low", "medium", "high", "critical"]
+    },
+    "duration": {
+      "type": "string",
+      "pattern": "^([0-9]+(\\.[0-9]*)?(ns|us|µs|ms|s|m|h))+$",
+      "examples": ["5s", "1m30s"]
+    },
+    "boolean": {
+      "anyOf": [
+        { "type": "boolean" },
+        { "type": "string", "pattern": "^\\$\\{[A-Za-z_][A-Za-z0-9_]*\\}$" }
+      ]
+    }
+  }
+}

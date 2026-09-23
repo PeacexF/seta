@@ -26,6 +26,9 @@ type EmailOptions struct {
 	// SelectorsGuessed marks DKIMSelectors as common guesses rather than the
 	// domain's real selectors, so finding none proves nothing.
 	SelectorsGuessed bool
+	// ExpectedMX lists the MX hosts the domain should have; a leading "*."
+	// matches one label. Empty disables email.mx.unexpected.
+	ExpectedMX []string
 	// DNSBLs overrides the default blocklist zones.
 	DNSBLs []string
 	// SpamhausDQSKey enables Spamhaus via Data Query Service, which unlike

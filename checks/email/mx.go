@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"net/netip"
+	"slices"
 	"strings"
 
 	"github.com/miekg/dns"
 
+	"github.com/PeacexF/seta/checks/email/internal/mtasts"
 	"github.com/PeacexF/seta/internal/core"
 	"github.com/PeacexF/seta/internal/netx"
 )
@@ -82,6 +84,51 @@ var _ = define(core.Meta{
 			})
 		case len(addrs[i]) == 0:
 			out = append(out, core.Finding{Subject: host, Evidence: map[string]string{"mx": host, "addresses": "none"}})
+		}
+	}
+	return out, nil
+})
+
+var _ = define(core.Meta{
+	ID:    "email.mx.unexpected",
+	Title: "MX records differ from the expected set",
+	Description: "The domain's MX hosts don't match the expected_mx list in the config: a host is " +
+		"published that isn't expected, or an expected host is missing. An unexpected MX host can " +
+		"receive (and read) the domain's mail, and is a common sign of a hijacked DNS zone or a " +
+		"forgotten migration. Only runs when expected_mx is configured.",
+	Remediation: "If the change was intended, update expected_mx in the config. Otherwise restore the MX " +
+		"records and find out who changed the zone.",
+	Mode:       core.Passive,
+	Severity:   core.SeverityMedium,
+	References: []string{rfc(5321, "5.1")},
+}, func(ctx context.Context, env core.Env, t core.Target) ([]core.Finding, error) {
+	expected := t.Email.ExpectedMX
+	if len(expected) == 0 {
+		return nil, nil
+	}
+	mx, err := loadMX(ctx, env, t.Name)
+	if err != nil {
+		return nil, err
+	}
+	actual := "none"
+	switch {
+	case mx.Null:
+		actual = "null MX (the domain receives no mail)"
+	case len(mx.Hosts) > 0:
+		actual = strings.Join(mx.Hosts, ", ")
+	}
+	evidence := func(k, v string) map[string]string {
+		return map[string]string{k: v, "expected": strings.Join(expected, ", "), "actual": actual}
+	}
+	var out []core.Finding
+	for _, host := range mx.Hosts {
+		if !slices.ContainsFunc(expected, func(p string) bool { return mtasts.Match(p, host) }) {
+			out = append(out, core.Finding{Subject: host, Title: "Unexpected MX host", Evidence: evidence("mx", host)})
+		}
+	}
+	for _, p := range expected {
+		if !slices.ContainsFunc(mx.Hosts, func(host string) bool { return mtasts.Match(p, host) }) {
+			out = append(out, core.Finding{Subject: p, Title: "Expected MX host missing", Evidence: evidence("missing", p)})
 		}
 	}
 	return out, nil

@@ -5,8 +5,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -19,6 +21,8 @@ import (
 type resolverFlags struct {
 	specs     []string
 	skipCheck bool
+	// timeout comes from the config; zero means the dnsx default.
+	timeout time.Duration
 }
 
 func (rf *resolverFlags) register(cmd *cobra.Command) {
@@ -46,7 +50,7 @@ func (a *App) setupResolver(ctx context.Context, rf resolverFlags) (dnsx.Resolve
 	if err != nil {
 		return nil, &exitError{code: ExitUsage, err: err}
 	}
-	r, err := a.buildResolver(specs)
+	r, err := a.buildResolver(specs, rf.timeout)
 	if err != nil {
 		return nil, &exitError{code: ExitUsage, err: err}
 	}
@@ -66,7 +70,10 @@ func (a *App) setupResolver(ctx context.Context, rf resolverFlags) (dnsx.Resolve
 	if allEncrypted(specs) {
 		return nil, &exitError{code: ExitUsage, err: errors.New("cannot scan without a working resolver")}
 	}
-	ok, asked, err := a.ask("Continue using encrypted DNS (DNS over HTTPS via 1.1.1.1 and 9.9.9.9)? [Y/n] ")
+	ok, asked, err := a.confirm("Continue using encrypted DNS (DNS over HTTPS via 1.1.1.1 and 9.9.9.9)? [Y/n] ", true)
+	if errors.Is(err, errPromptEOF) {
+		ok, err = false, nil
+	}
 	if err != nil {
 		return nil, &exitError{code: ExitUsage, err: err}
 	}
@@ -80,7 +87,7 @@ func (a *App) setupResolver(ctx context.Context, rf resolverFlags) (dnsx.Resolve
 
 	for _, choice := range encryptedChoices {
 		servers := dnsx.Presets[choice.preset]
-		r, err := a.buildResolver(servers)
+		r, err := a.buildResolver(servers, rf.timeout)
 		if err != nil {
 			return nil, &exitError{code: ExitUsage, err: err}
 		}
@@ -122,11 +129,11 @@ func (a *App) expandResolverSpecs(values []string) ([]string, error) {
 	return specs, nil
 }
 
-func (a *App) buildResolver(specs []string) (dnsx.Resolver, error) {
+func (a *App) buildResolver(specs []string, timeout time.Duration) (dnsx.Resolver, error) {
 	if a.NewResolver != nil {
 		return a.NewResolver(specs)
 	}
-	return dnsx.NewClient(specs, dnsx.Options{UserAgent: version.UserAgent()})
+	return dnsx.NewClient(specs, dnsx.Options{UserAgent: version.UserAgent(), Timeout: timeout})
 }
 
 func allEncrypted(specs []string) bool {
@@ -163,27 +170,48 @@ func (a *App) reportProbeFailure(specs []string, err error) {
 	fmt.Fprint(a.Stderr, b.String())
 }
 
-// ask poses a yes/no question on stderr. asked is false when nobody is there
-// to answer (not a terminal, or a CI job), in which case callers must not
-// assume either answer. An empty answer means yes.
-func (a *App) ask(question string) (yes, asked bool, err error) {
-	if a.Prompt != nil {
-		yes, err = a.Prompt(question)
-		return yes, true, err
-	}
-	in, inOK := a.Stdin.(*os.File)
-	errOut, outOK := a.Stderr.(*os.File)
-	if !inOK || !outOK || !term.IsTerminal(int(in.Fd())) || !term.IsTerminal(int(errOut.Fd())) {
-		return false, false, nil
-	}
-	fmt.Fprint(a.Stderr, question)
-	line, err := bufio.NewReader(in).ReadString('\n')
-	if err != nil && line == "" {
-		return false, true, nil // EOF (Ctrl-D) counts as no
+// confirm asks a yes/no question; an empty answer means def. asked is false
+// when nobody is there to answer, in which case callers must not assume
+// either answer.
+func (a *App) confirm(question string, def bool) (yes, asked bool, err error) {
+	line, asked, err := a.prompt(question)
+	if err != nil || !asked {
+		return false, asked, err
 	}
 	switch strings.ToLower(strings.TrimSpace(line)) {
-	case "", "y", "yes":
+	case "":
+		return def, true, nil
+	case "y", "yes":
 		return true, true, nil
 	}
 	return false, true, nil
 }
+
+// prompt asks a question on stderr and reads one line of answer. asked is
+// false when stdin or stderr is not a terminal (e.g. in CI).
+func (a *App) prompt(question string) (answer string, asked bool, err error) {
+	if a.Prompt != nil {
+		answer, err = a.Prompt(question)
+		return answer, true, err
+	}
+	in, inOK := a.Stdin.(*os.File)
+	errOut, outOK := a.Stderr.(*os.File)
+	if !inOK || !outOK || !term.IsTerminal(int(in.Fd())) || !term.IsTerminal(int(errOut.Fd())) {
+		return "", false, nil
+	}
+	if a.stdin == nil {
+		a.stdin = bufio.NewReader(in)
+	}
+	fmt.Fprint(a.Stderr, question)
+	line, err := a.stdin.ReadString('\n')
+	if err != nil && line == "" {
+		if errors.Is(err, io.EOF) {
+			return "", true, errPromptEOF
+		}
+		return "", true, err
+	}
+	return strings.TrimRight(line, "\r\n"), true, nil
+}
+
+// errPromptEOF means the user closed stdin (Ctrl-D) instead of answering.
+var errPromptEOF = errors.New("no answer (end of input)")

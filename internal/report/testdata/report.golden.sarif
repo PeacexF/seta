@@ -1,0 +1,342 @@
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "seta",
+          "version": "dev",
+          "informationUri": "https://github.com/PeacexF/seta",
+          "rules": [
+            {
+              "id": "email.dmarc.policy_none",
+              "shortDescription": {
+                "text": "DMARC policy is none"
+              },
+              "fullDescription": {
+                "text": "Spoofed mail is delivered."
+              },
+              "help": {
+                "text": "Move to p=quarantine."
+              },
+              "helpUri": "https://www.rfc-editor.org/rfc/rfc7489",
+              "defaultConfiguration": {
+                "level": "warning"
+              },
+              "properties": {
+                "precision": "high",
+                "security-severity": "5.5",
+                "tags": [
+                  "security",
+                  "email"
+                ]
+              }
+            },
+            {
+              "id": "email.mtasts.missing",
+              "shortDescription": {
+                "text": "No MTA-STS policy"
+              },
+              "defaultConfiguration": {
+                "level": "note"
+              },
+              "properties": {
+                "precision": "high",
+                "security-severity": "3.0",
+                "tags": [
+                  "security",
+                  "email"
+                ]
+              }
+            },
+            {
+              "id": "email.mx.fcrdns",
+              "shortDescription": {
+                "text": "MX host lacks forward-confirmed reverse DNS"
+              },
+              "defaultConfiguration": {
+                "level": "note"
+              },
+              "properties": {
+                "precision": "high",
+                "security-severity": "3.0",
+                "tags": [
+                  "security",
+                  "email"
+                ]
+              }
+            },
+            {
+              "id": "email.mx.missing",
+              "shortDescription": {
+                "text": "No MX records"
+              },
+              "fullDescription": {
+                "text": "Senders fall back to A records."
+              },
+              "help": {
+                "text": "Publish MX records."
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "precision": "high",
+                "security-severity": "8.0",
+                "tags": [
+                  "security",
+                  "email"
+                ]
+              }
+            },
+            {
+              "id": "email.spf.permissive_all",
+              "shortDescription": {
+                "text": "SPF record allows any sender"
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "precision": "high",
+                "security-severity": "9.5",
+                "tags": [
+                  "security",
+                  "email"
+                ]
+              }
+            },
+            {
+              "id": "email.starttls.unsupported",
+              "shortDescription": {
+                "text": "No STARTTLS"
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "precision": "high",
+                "security-severity": "8.0",
+                "tags": [
+                  "security",
+                  "email"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "invocations": [
+        {
+          "executionSuccessful": true,
+          "toolExecutionNotifications": [
+            {
+              "level": "error",
+              "message": {
+                "text": "email.mx.missing on flaky.test could not complete: lookup MX flaky.test: server responded SERVFAIL"
+              },
+              "associatedRule": {
+                "id": "email.mx.missing"
+              }
+            }
+          ]
+        }
+      ],
+      "results": [
+        {
+          "ruleId": "email.spf.permissive_all",
+          "ruleIndex": 4,
+          "level": "error",
+          "message": {
+            "text": "SPF record allows any sender on broken.test.\nrecord: v=spf1 +all\nFix: Replace +all with -all or ~all."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "seta.yaml"
+                },
+                "region": {
+                  "startLine": 4
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "broken.test",
+                  "fullyQualifiedName": "broken.test",
+                  "kind": "resource"
+                }
+              ]
+            }
+          ],
+          "partialFingerprints": {
+            "setaFingerprint/v1": "d76344a4eb407126a3da395994e65640"
+          },
+          "baselineState": "new",
+          "properties": {
+            "evidence": {
+              "record": "v=spf1 +all"
+            },
+            "severity": "critical",
+            "target": "broken.test"
+          }
+        },
+        {
+          "ruleId": "email.mx.missing",
+          "ruleIndex": 3,
+          "level": "error",
+          "message": {
+            "text": "No MX records on broken.test.\nimplicit_mx: 192.0.2.80\nmx_records: none\nFix: Publish MX records."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "seta.yaml"
+                },
+                "region": {
+                  "startLine": 4
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "broken.test",
+                  "fullyQualifiedName": "broken.test",
+                  "kind": "resource"
+                }
+              ]
+            }
+          ],
+          "partialFingerprints": {
+            "setaFingerprint/v1": "186cb8898eec04bd9cad5ebde031306b"
+          },
+          "baselineState": "new",
+          "properties": {
+            "evidence": {
+              "implicit_mx": "192.0.2.80",
+              "mx_records": "none"
+            },
+            "severity": "high",
+            "target": "broken.test"
+          }
+        },
+        {
+          "ruleId": "email.mx.fcrdns",
+          "ruleIndex": 2,
+          "level": "note",
+          "message": {
+            "text": "MX host lacks forward-confirmed reverse DNS (mx2.broken.test) on broken.test."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "seta.yaml"
+                },
+                "region": {
+                  "startLine": 4
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "broken.test",
+                  "fullyQualifiedName": "broken.test/mx2.broken.test",
+                  "kind": "resource"
+                }
+              ]
+            }
+          ],
+          "partialFingerprints": {
+            "setaFingerprint/v1": "a1a02ba751d475630a31f6d03b9ea875"
+          },
+          "baselineState": "new",
+          "properties": {
+            "severity": "low",
+            "subject": "mx2.broken.test",
+            "target": "broken.test"
+          }
+        },
+        {
+          "ruleId": "email.dmarc.policy_none",
+          "ruleIndex": 0,
+          "level": "warning",
+          "message": {
+            "text": "DMARC policy is none on broken.test.\nrecord: v=DMARC1; p=none"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "seta.yaml"
+                },
+                "region": {
+                  "startLine": 4
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "broken.test",
+                  "fullyQualifiedName": "broken.test",
+                  "kind": "resource"
+                }
+              ]
+            }
+          ],
+          "partialFingerprints": {
+            "setaFingerprint/v1": "1405c3678b2144f48a083fc27c3989a7"
+          },
+          "baselineState": "unchanged",
+          "properties": {
+            "evidence": {
+              "record": "v=DMARC1; p=none"
+            },
+            "severity": "medium",
+            "target": "broken.test"
+          }
+        },
+        {
+          "ruleId": "email.mtasts.missing",
+          "ruleIndex": 1,
+          "level": "note",
+          "message": {
+            "text": "No MTA-STS policy on clean.test.\nFix: Publish a policy."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "seta.yaml"
+                },
+                "region": {
+                  "startLine": 9
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "clean.test",
+                  "fullyQualifiedName": "clean.test",
+                  "kind": "resource"
+                }
+              ]
+            }
+          ],
+          "partialFingerprints": {
+            "setaFingerprint/v1": "f621c715e73c168a141142aac779eb35"
+          },
+          "suppressions": [
+            {
+              "kind": "external",
+              "status": "accepted",
+              "justification": "Receives no mail | legacy (until 2027-01-01)"
+            }
+          ],
+          "properties": {
+            "severity": "low",
+            "target": "clean.test"
+          }
+        }
+      ]
+    }
+  ]
+}

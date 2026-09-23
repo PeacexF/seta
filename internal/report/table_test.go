@@ -47,6 +47,28 @@ func sampleResult() *engine.Result {
 		Errors: []engine.CheckError{
 			{CheckID: "email.mx.missing", Target: "flaky.test", Err: errors.New("lookup MX flaky.test: server responded SERVFAIL")},
 		},
+		Suppressed: []engine.Suppressed{{
+			Finding: core.Finding{
+				CheckID: "email.mtasts.missing", Target: "clean.test", Severity: core.SeverityLow,
+				Title: "No MTA-STS policy", Remediation: "Publish a policy.",
+			},
+			Reason:  "Receives no mail | legacy",
+			Expires: time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC),
+		}},
+		Baselined: []core.Finding{{
+			CheckID: "email.dmarc.policy_none", Target: "broken.test", Severity: core.SeverityMedium,
+			Title: "DMARC policy is none", Evidence: map[string]string{"record": "v=DMARC1; p=none"},
+		}},
+		Checks: []core.Meta{
+			{ID: "email.dmarc.policy_none", Module: "email", Title: "DMARC policy is none", Severity: core.SeverityMedium,
+				Description: "Spoofed mail is delivered.", Remediation: "Move to p=quarantine.", References: []string{"https://www.rfc-editor.org/rfc/rfc7489"}},
+			{ID: "email.mtasts.missing", Module: "email", Title: "No MTA-STS policy", Severity: core.SeverityLow},
+			{ID: "email.mx.fcrdns", Module: "email", Title: "MX host lacks forward-confirmed reverse DNS", Severity: core.SeverityLow},
+			{ID: "email.mx.missing", Module: "email", Title: "No MX records", Severity: core.SeverityHigh,
+				Description: "Senders fall back to A records.", Remediation: "Publish MX records."},
+			{ID: "email.spf.permissive_all", Module: "email", Title: "SPF record allows any sender", Severity: core.SeverityCritical},
+			{ID: "email.starttls.unsupported", Module: "email", Title: "No STARTTLS", Severity: core.SeverityHigh, Mode: core.Active},
+		},
 	}
 }
 

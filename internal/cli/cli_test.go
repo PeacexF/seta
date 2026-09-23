@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/miekg/dns"
 
@@ -24,9 +25,10 @@ import (
 type harness struct {
 	checks           []core.Check // default: just email.mx.missing
 	system, doh, dot dnsx.Resolver
-	prompt           func(question string) (bool, error)
+	prompt           func(question string) (string, error)
 	specs            [][]string // every spec list a resolver was built for
 	questions        []string
+	now              time.Time
 }
 
 func (h *harness) run(t *testing.T, args ...string) (code int, stdout, stderr string) {
@@ -67,8 +69,11 @@ func (h *harness) run(t *testing.T, args ...string) (code int, stdout, stderr st
 		Stdout: &out,
 		Stderr: &errOut,
 	}
+	if !h.now.IsZero() {
+		app.Now = func() time.Time { return h.now }
+	}
 	if h.prompt != nil {
-		app.Prompt = func(q string) (bool, error) {
+		app.Prompt = func(q string) (string, error) {
 			h.questions = append(h.questions, q)
 			return h.prompt(q)
 		}
@@ -100,8 +105,8 @@ func (f resolverFunc) Lookup(ctx context.Context, name string, qtype uint16) (*d
 	return f(ctx, name, qtype)
 }
 
-func yes(string) (bool, error) { return true, nil }
-func no(string) (bool, error)  { return false, nil }
+func yes(string) (string, error) { return "", nil }
+func no(string) (string, error)  { return "n", nil }
 
 func TestVersion(t *testing.T) {
 	code, out, _ := run(t, "version")
