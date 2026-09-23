@@ -1,0 +1,5 @@
+; Stands in for Azure: every app name that isn't listed doesn't exist.
+$ORIGIN azurewebsites.net.
+$TTL 60
+@  SOA  ns.int.test. hostmaster.int.test. 1 3600 600 86400 60
+@  NS   ns.int.test.

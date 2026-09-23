@@ -2,6 +2,11 @@
     auto {
         directory /zones (.*)\.zone {1}
     }
+    # Lets dns.axfr.allowed find something: int.test's only nameserver
+    # hands the zone to anyone.
+    transfer {
+        to *
+    }
     log
     errors
 }

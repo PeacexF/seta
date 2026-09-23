@@ -11,13 +11,19 @@ import (
 	"path/filepath"
 	"strings"
 
+	_ "github.com/PeacexF/seta/checks/dns"
 	_ "github.com/PeacexF/seta/checks/email"
+	_ "github.com/PeacexF/seta/checks/http"
+	_ "github.com/PeacexF/seta/checks/tls"
 	"github.com/PeacexF/seta/internal/core"
 	"github.com/PeacexF/seta/internal/registry"
 )
 
 var moduleTitles = map[string]string{
 	"email": "Email",
+	"tls":   "TLS",
+	"http":  "HTTP",
+	"dns":   "DNS",
 }
 
 func main() {

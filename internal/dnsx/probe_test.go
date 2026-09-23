@@ -40,10 +40,11 @@ func TestProbeDetectsTampering(t *testing.T) {
 	f := canaryFake(t, func(c Canary) bool { return c.Type != dns.TypeA })
 	err := Probe(context.Background(), f)
 	var pe *ProbeError
-	if !errors.As(err, &pe) || !pe.Tampered || len(pe.Problems) != 2 {
-		t.Fatalf("want tampering with 2 problems, got %#v", err)
+	if !errors.As(err, &pe) || !pe.Tampered || len(pe.Problems) != 3 {
+		t.Fatalf("want tampering with 3 problems, got %#v", err)
 	}
-	for _, want := range []string{"MX lookups for gmail.com, outlook.com and yahoo.com returned no records", "TXT lookups"} {
+	for _, want := range []string{"MX lookups for gmail.com, outlook.com and yahoo.com returned no records", "TXT lookups",
+		"DS lookups for cloudflare.com, ietf.org and isc.org returned no records"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q missing %q", err, want)
 		}
@@ -57,8 +58,8 @@ func TestProbeDetectsUnreachableResolver(t *testing.T) {
 	}
 	err := Probe(context.Background(), f)
 	var pe *ProbeError
-	if !errors.As(err, &pe) || pe.Tampered || len(pe.Problems) != 3 {
-		t.Fatalf("want 3 unreachable problems, got %#v", err)
+	if !errors.As(err, &pe) || pe.Tampered || len(pe.Problems) != 4 {
+		t.Fatalf("want 4 unreachable problems, got %#v", err)
 	}
 	if !strings.Contains(err.Error(), "i/o timeout") {
 		t.Errorf("error should carry the cause: %v", err)

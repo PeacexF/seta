@@ -2,6 +2,7 @@ package dnsx
 
 import (
 	"context"
+	"errors"
 	"sync"
 )
 
@@ -21,8 +22,9 @@ type Cache struct {
 }
 
 type cacheKey struct {
-	name  string
-	qtype uint16
+	name   string
+	qtype  uint16
+	dnssec bool
 }
 
 type cacheEntry struct {
@@ -38,7 +40,18 @@ func NewCache(next Resolver) *Cache {
 }
 
 func (c *Cache) Lookup(ctx context.Context, name string, qtype uint16) (*Response, error) {
-	key := cacheKey{CanonicalName(name), qtype}
+	return c.lookup(ctx, cacheKey{CanonicalName(name), qtype, false})
+}
+
+// LookupDNSSEC fails when the wrapped resolver can't make DNSSEC queries.
+func (c *Cache) LookupDNSSEC(ctx context.Context, name string, qtype uint16) (*Response, error) {
+	return c.lookup(ctx, cacheKey{CanonicalName(name), qtype, true})
+}
+
+var errNoDNSSEC = errors.New("the resolver does not support DNSSEC queries")
+
+func (c *Cache) lookup(ctx context.Context, key cacheKey) (*Response, error) {
+	qtype := key.qtype
 	for {
 		c.mu.Lock()
 		e, ok := c.entries[key]
@@ -75,6 +88,12 @@ func (c *Cache) fill(ctx context.Context, key cacheKey, e *cacheEntry) {
 	// Assume the worst until Lookup returns, so a panic in the resolver
 	// releases waiters instead of leaving them blocked on done.
 	e.retry = true
-	e.resp, e.err = c.next.Lookup(ctx, key.name, key.qtype)
+	if !key.dnssec {
+		e.resp, e.err = c.next.Lookup(ctx, key.name, key.qtype)
+	} else if sec, ok := c.next.(DNSSECResolver); ok {
+		e.resp, e.err = sec.LookupDNSSEC(ctx, key.name, key.qtype)
+	} else {
+		e.err = &Error{Name: key.name, Type: key.qtype, Err: errNoDNSSEC}
+	}
 	e.retry = e.err != nil && ctx.Err() != nil
 }

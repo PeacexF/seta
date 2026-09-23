@@ -2,6 +2,8 @@ package core
 
 import (
 	"fmt"
+	"net"
+	"strconv"
 	"strings"
 
 	"golang.org/x/net/idna"
@@ -21,6 +23,53 @@ type Target struct {
 	Email EmailOptions
 	// Plugins holds each plugin's JSON config for this target, by plugin name.
 	Plugins map[string][]byte
+	// Hosts are the web hosts the tls, http and dns checks look at; nil
+	// means the defaults from WebHosts.
+	Hosts []Host
+	// URLs are pages the http checks fetch instead of each host's "/".
+	URLs []string
+}
+
+// Host is a TLS/HTTP endpoint belonging to a target.
+type Host struct {
+	Name string
+	Port int
+	// Explicit hosts were listed in the config. Implicit ones (the defaults)
+	// are skipped when they don't exist or serve nothing, since many domains
+	// have no website.
+	Explicit bool
+}
+
+func (h Host) String() string {
+	if h.Port == 443 {
+		return h.Name
+	}
+	return net.JoinHostPort(h.Name, strconv.Itoa(h.Port))
+}
+
+// WebHosts returns t.Hosts, or the domain and its www subdomain on 443.
+func (t Target) WebHosts() []Host {
+	if t.Hosts != nil {
+		return t.Hosts
+	}
+	return []Host{{Name: t.Name, Port: 443}, {Name: "www." + t.Name, Port: 443}}
+}
+
+// ParseHost validates "name" or "name:port" (default port 443).
+func ParseHost(s string) (Host, error) {
+	name, port := s, 443
+	if h, p, err := net.SplitHostPort(s); err == nil {
+		n, err := strconv.Atoi(p)
+		if err != nil || n < 1 || n > 65535 {
+			return Host{}, fmt.Errorf("%q has an invalid port", s)
+		}
+		name, port = h, n
+	}
+	d, err := ParseDomain(name)
+	if err != nil {
+		return Host{}, err
+	}
+	return Host{Name: d.Name, Port: port, Explicit: true}, nil
 }
 
 type EmailOptions struct {

@@ -120,6 +120,8 @@ func canaryRR(c Canary) dns.RR {
 		return &dns.MX{Hdr: hdr, Preference: 10, Mx: "mx." + dns.Fqdn(c.Name)}
 	case dns.TypeTXT:
 		return &dns.TXT{Hdr: hdr, Txt: []string{"v=spf1 -all"}}
+	case dns.TypeDS:
+		return &dns.DS{Hdr: hdr, KeyTag: 2371, Algorithm: dns.ECDSAP256SHA256, DigestType: dns.SHA256, Digest: "00"}
 	}
 	panic("dnsx: no fake record for canary type " + dns.TypeToString[c.Type])
 }
@@ -133,13 +135,23 @@ func (f *Fake) SetError(name string, qtype uint16, err error) {
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.errs[cacheKey{name, qtype}] = err
+	f.errs[cacheKey{name: name, qtype: qtype}] = err
 }
 
 // maxCNAMEChain bounds CNAME following, like a real resolver would.
 const maxCNAMEChain = 8
 
 func (f *Fake) Lookup(ctx context.Context, name string, qtype uint16) (*Response, error) {
+	return f.lookup(ctx, name, qtype, false)
+}
+
+// LookupDNSSEC also returns the RRSIG records loaded for each answer. The
+// fake never validates, as if CD were set.
+func (f *Fake) LookupDNSSEC(ctx context.Context, name string, qtype uint16) (*Response, error) {
+	return f.lookup(ctx, name, qtype, true)
+}
+
+func (f *Fake) lookup(ctx context.Context, name string, qtype uint16, dnssec bool) (*Response, error) {
 	name = CanonicalName(name)
 	if err := ctx.Err(); err != nil {
 		return nil, &Error{Name: name, Type: qtype, Err: err}
@@ -150,7 +162,7 @@ func (f *Fake) Lookup(ctx context.Context, name string, qtype uint16) (*Response
 	resp := &Response{Name: name, Type: qtype, Rcode: dns.RcodeSuccess}
 	current := name
 	for range maxCNAMEChain {
-		if err, ok := f.errs[cacheKey{current, qtype}]; ok {
+		if err, ok := f.errs[cacheKey{name: current, qtype: qtype}]; ok {
 			return nil, err
 		}
 		var cname *dns.CNAME
@@ -162,6 +174,15 @@ func (f *Fake) Lookup(ctx context.Context, name string, qtype uint16) (*Response
 				matched = true
 			case rr.Header().Rrtype == dns.TypeCNAME:
 				cname = rr.(*dns.CNAME)
+			}
+		}
+		covered := qtype
+		if !matched && cname != nil && qtype != dns.TypeCNAME {
+			covered = dns.TypeCNAME
+		}
+		for _, rr := range f.records[current] {
+			if sig, ok := rr.(*dns.RRSIG); ok && dnssec && sig.TypeCovered == covered && qtype != dns.TypeRRSIG {
+				resp.Answer = append(resp.Answer, sig)
 			}
 		}
 		if matched || cname == nil || qtype == dns.TypeCNAME {

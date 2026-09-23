@@ -87,8 +87,8 @@ version: 1
 
 targets:
   - domain: example.com
-    checks: ["email.*"]
     active: true
+    hosts: [example.com, www.example.com, "api.example.com:8443"]
     email:
       dkim_selectors: ["google", "s1"]
 
@@ -183,7 +183,7 @@ Test your notifiers with `seta notify test`.
 
 ## Checks
 
-The first module covers email security. Run `seta checks list` for the full catalog.
+Run `seta checks list` for the full catalog. Checks marked *(active)* probe your servers and only run when enabled.
 
 | Area | What Seta verifies |
 |---|---|
@@ -195,8 +195,13 @@ The first module covers email security. Run `seta checks list` for the full cata
 | TLS-RPT | Reporting record present |
 | STARTTLS *(active)* | Every MX supports STARTTLS with a valid, non-expiring certificate |
 | DNSBL | Mail server IPs not listed on blocklists |
+| TLS | Certificates trusted, matching the host name and not about to expire; TLS 1.2+ supported; no TLS 1.0/1.1 or weak ciphers *(active)* |
+| HTTP | HTTP redirects to HTTPS, HSTS (and preload readiness), CSP, frame protection, `nosniff`, Referrer-Policy; no exposed `/.git` or `/.env` *(active)* |
+| DNS | DNSSEC present and valid, CAA records, dangling CNAMEs and subdomain takeover; no open zone transfers or open resolvers *(active)* |
 
-Planned modules: **tls**, **http**, **dns** (DNSSEC, CAA, dangling CNAMEs / subdomain takeover), **domain** (registration expiry via RDAP), **exposure** (open ports against an allowlist), and **ct** (new certificates in Certificate Transparency logs)
+TLS and HTTP checks look at the domain and `www.` unless a target lists its own `hosts:` (and `urls:`).
+
+Planned modules: **domain** (registration expiry via RDAP), **exposure** (open ports against an allowlist), and **ct** (new certificates in Certificate Transparency logs)
 
 ## Output formats
 
@@ -227,7 +232,7 @@ Plugins can also live in a `plugins_dir` set in `seta.yaml`, and get settings fr
 
 ## Responsible use
 
-Seta detects misconfiguration. It never exploits it: no relay tests, no takeover attempts, no automatic expansion of scope. Passive checks use public DNS data. Active checks connect to your services only when you enable them per target.
+Seta detects misconfiguration. It never exploits it: no relay tests, no takeover attempts, no automatic expansion of scope. Passive checks use public DNS data and make the requests any visitor makes (one TLS handshake and page load per host). Active checks probe your services (old TLS versions, zone transfers, sensitive paths) only when you enable them per target.
 
 **Only scan infrastructure you own or are authorized to test.**
 

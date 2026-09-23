@@ -613,6 +613,24 @@ func (p *parser) target(t *Target, n *yaml.Node, firstLine map[string]int) {
 	p.patterns(value(n, "checks"), n, t.Checks)
 	p.pluginConfigs(t.Plugins, value(n, "plugins"))
 
+	hosts := value(n, "hosts")
+	for i, h := range t.Hosts {
+		parsed, err := core.ParseHost(h)
+		if err != nil {
+			p.errorf(item(hosts, i), "invalid host: %v", err)
+			continue
+		}
+		t.Hosts[i] = parsed.String()
+	}
+	urls := value(n, "urls")
+	for i, raw := range t.URLs {
+		if u, err := url.Parse(raw); err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || u.User != nil {
+			p.errorf(item(urls, i), "invalid URL %q: want http(s)://host/path", raw)
+		} else if _, err := core.ParseHost(u.Host); err != nil {
+			p.errorf(item(urls, i), "invalid URL %q: %v", raw, err)
+		}
+	}
+
 	email := value(n, "email")
 	sels := value(email, "dkim_selectors")
 	for i, s := range t.Email.DKIMSelectors {

@@ -1,5 +1,6 @@
 # Integration environment: CoreDNS serving test zones, Postfix with and
-# without STARTTLS, an expired-certificate MX, and an MTA-STS policy host.
+# without STARTTLS, an expired-certificate MX, an MTA-STS policy host, and
+# web servers for the tls and http checks.
 # Run with: make integration (it mounts the host's module cache, so the
 # containers need no network access to the Go proxy).
 name: seta-integration
@@ -63,6 +64,15 @@ services:
     networks:
       seta: { ipv4_address: 172.28.0.80 }
 
+  web-legacy:
+    image: nginx:1.29-alpine
+    volumes:
+      - ./nginx/legacy.conf:/etc/nginx/nginx.conf:ro
+      - certs:/certs:ro
+    depends_on: { certgen: { condition: service_completed_successfully } }
+    networks:
+      seta: { ipv4_address: 172.28.0.81 }
+
   tests:
     <<: *go
     command: go test -tags integration -count=1 -v ./integration/
@@ -70,7 +80,7 @@ services:
       <<: *goenv
       SETA_IT_DNS: 172.28.0.53
       SETA_IT_CA: /certs/ca.pem
-    depends_on: [dns, mx-tls, mx-plain, mx-expired, mta-sts]
+    depends_on: [dns, mx-tls, mx-plain, mx-expired, mta-sts, web-legacy]
     networks: [seta]
 
 networks:

@@ -31,7 +31,7 @@ fuzz:
 COMPOSE = SETA_GOMODCACHE=$$(go env GOMODCACHE) docker compose -f integration/docker-compose.yml
 integration:
 	go mod download
-	$(COMPOSE) up --build --wait --detach dns mx-tls mx-plain mx-expired mta-sts
+	$(COMPOSE) up --build --wait --detach dns mx-tls mx-plain mx-expired mta-sts web-legacy
 	$(COMPOSE) run --rm tests; status=$$?; $(COMPOSE) down -v; exit $$status
 
 integration-down:

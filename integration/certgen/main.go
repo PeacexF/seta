@@ -59,6 +59,11 @@ func main() {
 	leaf("mx-tls.int.test", "mx-tls", now.Add(-time.Hour), now.Add(90*24*time.Hour))
 	leaf("mx-expired.int.test", "mx-expired", now.Add(-60*24*time.Hour), now.Add(-24*time.Hour))
 	leaf("mta-sts.tls.int.test", "mta-sts", now.Add(-time.Hour), now.Add(90*24*time.Hour))
+	leaf("web-good.int.test", "web-good", now.Add(-time.Hour), now.Add(90*24*time.Hour))
+	leaf("web-legacy.int.test", "web-legacy", now.Add(-time.Hour), now.Add(90*24*time.Hour))
+	leaf("web-expired.int.test", "web-expired", now.Add(-60*24*time.Hour), now.Add(-24*time.Hour))
+	// Served for web-mismatch.int.test.
+	leaf("other.int.test", "web-mismatch", now.Add(-time.Hour), now.Add(90*24*time.Hour))
 }
 
 func newKey() *ecdsa.PrivateKey { return must(ecdsa.GenerateKey(elliptic.P256(), rand.Reader)) }

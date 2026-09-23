@@ -201,11 +201,20 @@ func (c *Client) Encrypted() bool {
 }
 
 func (c *Client) Lookup(ctx context.Context, name string, qtype uint16) (*Response, error) {
+	return c.lookup(ctx, name, qtype, false)
+}
+
+func (c *Client) LookupDNSSEC(ctx context.Context, name string, qtype uint16) (*Response, error) {
+	return c.lookup(ctx, name, qtype, true)
+}
+
+func (c *Client) lookup(ctx context.Context, name string, qtype uint16, dnssec bool) (*Response, error) {
 	name = CanonicalName(name)
 	msg := new(dns.Msg)
 	msg.SetQuestion(name, qtype)
 	msg.RecursionDesired = true
-	msg.SetEdns0(1232, false)
+	msg.CheckingDisabled = dnssec
+	msg.SetEdns0(1232, dnssec)
 
 	var lastErr error
 	for _, u := range c.upstreams {

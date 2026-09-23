@@ -15,23 +15,34 @@ type Canary struct {
 	Type uint16
 }
 
-// canaryDomains are large mail providers whose MX, TXT (SPF) and A records
-// have been stable for well over a decade. Each record type only needs one
-// of them to answer, so a single provider changing its setup can't break the
-// check.
-var canaryDomains = []string{"gmail.com", "outlook.com", "yahoo.com"}
+// mailProviders have had stable MX, TXT (SPF) and A records for well over a
+// decade; signedZones have been DNSSEC-signed for as long. Each record type
+// only needs one of its domains to answer, so a single domain changing its
+// setup can't break the check.
+var (
+	mailProviders = []string{"gmail.com", "outlook.com", "yahoo.com"}
+	signedZones   = []string{"cloudflare.com", "ietf.org", "isc.org"}
+)
 
 // canaryTypes are the record types checks depend on most. Some networks
 // answer A queries honestly while blanking everything else, so each type is
 // probed separately.
-var canaryTypes = []uint16{dns.TypeA, dns.TypeMX, dns.TypeTXT}
+var canaryTypes = []struct {
+	qtype   uint16
+	domains []string
+}{
+	{dns.TypeA, mailProviders},
+	{dns.TypeMX, mailProviders},
+	{dns.TypeTXT, mailProviders},
+	{dns.TypeDS, signedZones},
+}
 
 // Canaries lists every query Probe makes.
 func Canaries() []Canary {
 	var out []Canary
 	for _, t := range canaryTypes {
-		for _, d := range canaryDomains {
-			out = append(out, Canary{Name: d, Type: t})
+		for _, d := range t.domains {
+			out = append(out, Canary{Name: d, Type: t.qtype})
 		}
 	}
 	return out
@@ -86,7 +97,7 @@ func Probe(ctx context.Context, r Resolver) error {
 		ok, answered := false, false
 		var firstErr error
 		for i, c := range canaries {
-			if c.Type != t {
+			if c.Type != t.qtype {
 				continue
 			}
 			switch r := results[i]; {
@@ -98,12 +109,12 @@ func Probe(ctx context.Context, r Resolver) error {
 				firstErr = r.err
 			}
 		}
-		typ := dns.TypeToString[t]
+		typ := dns.TypeToString[t.qtype]
 		switch {
 		case ok:
 		case answered:
 			pe.Tampered = true
-			pe.Problems = append(pe.Problems, fmt.Sprintf("%s lookups for %s returned no records", typ, joinOr(canaryDomains)))
+			pe.Problems = append(pe.Problems, fmt.Sprintf("%s lookups for %s returned no records", typ, joinOr(t.domains)))
 		default:
 			pe.Problems = append(pe.Problems, fmt.Sprintf("%s lookups failed (%v)", typ, firstErr))
 		}

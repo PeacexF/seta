@@ -68,6 +68,9 @@ type Target struct {
 	// Active overrides Defaults.Active when set.
 	Active *bool `yaml:"active"`
 	Email  Email `yaml:"email"`
+	// Hosts are "name" or "name:port", canonical after loading.
+	Hosts []string `yaml:"hosts"`
+	URLs  []string `yaml:"urls"`
 	// Plugins override the top-level plugin settings key by key.
 	Plugins map[string]PluginConfig `yaml:"plugins"`
 

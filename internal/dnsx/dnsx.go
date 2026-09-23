@@ -21,6 +21,16 @@ type Resolver interface {
 	Lookup(ctx context.Context, name string, qtype uint16) (*Response, error)
 }
 
+// DNSSECResolver is a Resolver that can also fetch DNSSEC data.
+//
+// LookupDNSSEC sets the DO and CD bits: answers include the RRSIG records
+// covering them, and a zone whose signatures don't validate still answers,
+// so its breakage can be examined rather than showing up as SERVFAIL.
+type DNSSECResolver interface {
+	Resolver
+	LookupDNSSEC(ctx context.Context, name string, qtype uint16) (*Response, error)
+}
+
 // Response is the answer to one query. Responses may be cached and shared
 // between checks, so callers must not modify them.
 type Response struct {
@@ -40,6 +50,17 @@ func (r *Response) Records() []dns.RR {
 	for _, rr := range r.Answer {
 		if rr.Header().Rrtype == r.Type {
 			out = append(out, rr)
+		}
+	}
+	return out
+}
+
+// RRSIGs returns the signatures in the answer that cover the queried type.
+func (r *Response) RRSIGs() []*dns.RRSIG {
+	var out []*dns.RRSIG
+	for _, rr := range r.Answer {
+		if sig, ok := rr.(*dns.RRSIG); ok && sig.TypeCovered == r.Type {
+			out = append(out, sig)
 		}
 	}
 	return out

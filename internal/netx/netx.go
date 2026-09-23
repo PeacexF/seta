@@ -117,6 +117,8 @@ func (n *Net) RootCAs() *x509.CertPool { return n.opts.RootCAs }
 
 func (n *Net) Timeout() time.Duration { return n.opts.Timeout }
 
+func (n *Net) UserAgent() string { return n.opts.UserAgent }
+
 // HTTPClient never follows redirects: callers inspect them, and some
 // protocols (MTA-STS) forbid following them.
 func (n *Net) HTTPClient() *http.Client { return n.http() }

@@ -223,6 +223,11 @@ func (a *App) runConfig(cmd *cobra.Command, cf configRunFlags) (*engine.Result, 
 }
 
 func targetOf(cfg *config.Config, t config.Target) core.Target {
+	var hosts []core.Host
+	for _, h := range t.Hosts {
+		parsed, _ := core.ParseHost(h) // validated while loading
+		hosts = append(hosts, parsed)
+	}
 	return core.Target{
 		Kind: core.KindDomain,
 		Name: t.Domain,
@@ -233,6 +238,8 @@ func targetOf(cfg *config.Config, t config.Target) core.Target {
 			SpamhausDQSKey: os.Getenv("SETA_SPAMHAUS_DQS_KEY"),
 		},
 		Plugins: cfg.PluginConfig(t),
+		Hosts:   hosts,
+		URLs:    t.URLs,
 	}
 }
 

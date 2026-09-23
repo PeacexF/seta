@@ -125,12 +125,16 @@ version: 1
 #   servers: [doh]
 
 defaults:
-  checks: ["email.*"]
-  # Active checks connect to your servers (STARTTLS on port 25).
+  # All checks run by default; narrow them with globs.
+  # checks: ["email.*", "tls.*", "!dns.caa.*"]
+  # Active checks probe your servers: STARTTLS on port 25, old TLS versions,
+  # zone transfers, exposed files.
 `)
 	fmt.Fprintf(&b, "  active: %t\n\ntargets:\n", active)
 	for _, t := range targets {
-		fmt.Fprintf(&b, "  - domain: %s\n    email:\n", t.domain)
+		fmt.Fprintf(&b, "  - domain: %s\n", t.domain)
+		fmt.Fprintf(&b, "    # Web hosts for the tls and http checks (default: %s and www.%s).\n"+
+			"    # hosts: [%s, www.%s]\n    email:\n", t.domain, t.domain, t.domain, t.domain)
 		if len(t.selectors) > 0 {
 			fmt.Fprintf(&b, "      dkim_selectors: %s\n", yamlList(t.selectors))
 		} else {

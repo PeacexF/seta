@@ -29,7 +29,8 @@ func (a *App) scanCommand() *cobra.Command {
 		Use:   "scan <domain>...",
 		Short: "Scan domains once, without a config file",
 		Long: "Run passive checks against the given domains and print a report. Active checks, which\n" +
-			"connect to the domain's servers (e.g. STARTTLS on port 25), run only with --active.\n\n" +
+			"probe the domain's servers (STARTTLS on port 25, old TLS versions, zone transfers, exposed\n" +
+			"files), run only with --active.\n\n" +
 			"Only scan domains you own or are authorized to test.",
 		Example: "  seta scan example.com\n" +
 			"  seta scan --active example.com example.org\n" +
@@ -90,7 +91,7 @@ func (a *App) runScan(cmd *cobra.Command, args []string, rf resolverFlags, sf sc
 
 	var notes []string
 	if skippedActive > 0 {
-		notes = append(notes, fmt.Sprintf("%s not run (e.g. STARTTLS); pass --active to connect to mail servers.",
+		notes = append(notes, fmt.Sprintf("%s not run; pass --active to probe the domain's servers.",
 			plural(skippedActive, "active check")))
 	}
 	return a.finish(s, res, notes, nil)

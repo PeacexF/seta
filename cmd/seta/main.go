@@ -7,7 +7,10 @@ import (
 	"os/signal"
 	"syscall"
 
+	_ "github.com/PeacexF/seta/checks/dns"
 	_ "github.com/PeacexF/seta/checks/email"
+	_ "github.com/PeacexF/seta/checks/http"
+	_ "github.com/PeacexF/seta/checks/tls"
 	"github.com/PeacexF/seta/internal/cli"
 	"github.com/PeacexF/seta/internal/registry"
 )

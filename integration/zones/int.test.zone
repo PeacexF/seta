@@ -25,3 +25,15 @@ expired         MX   10 mx-expired
 
 ; A DNSBL that follows RFC 5782 and lists nothing else.
 2.0.0.127.bl    A    127.0.0.2
+
+; Web hosts (nginx): web-good is well configured, the others each break
+; something. See nginx/nginx.conf and nginx/legacy.conf.
+web-good        A    172.28.0.80
+web-good        CAA  0 issue "letsencrypt.org"
+web-expired     A    172.28.0.80
+web-mismatch    A    172.28.0.80
+web-legacy      A    172.28.0.81
+
+; A CNAME to a name that doesn't exist, and one to an unclaimed Azure app.
+gone            CNAME nothing-here.int.test.
+app             CNAME old-app.azurewebsites.net.
