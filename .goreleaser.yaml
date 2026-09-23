@@ -1,0 +1,48 @@
+version: 2
+
+project_name: seta
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - main: ./cmd/seta
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w
+      - -X github.com/PeacexF/seta/internal/version.Version={{ .Version }}
+      - -X github.com/PeacexF/seta/internal/version.Commit={{ .FullCommit }}
+      - -X github.com/PeacexF/seta/internal/version.Date={{ .CommitDate }}
+    # Reproducible: binaries don't depend on when or where they were built.
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files: [LICENSE, README.md]
+
+checksum:
+  name_template: checksums.txt
+
+dockers_v2:
+  - images: ["ghcr.io/peacexf/seta"]
+    tags:
+      - "{{ .Version }}"
+      - "{{ if not .Prerelease }}latest{{ end }}"
+    platforms: [linux/amd64, linux/arm64]
+    labels:
+      org.opencontainers.image.source: https://github.com/PeacexF/seta
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.licenses: Apache-2.0
+
+changelog:
+  sort: asc
+  filters:
+    exclude: ["^docs:", "^test:", "^ci:"]

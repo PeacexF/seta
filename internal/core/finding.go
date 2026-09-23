@@ -21,6 +21,8 @@ type Finding struct {
 	// rewording or new evidence does not turn a finding into a "new" one.
 	Evidence    map[string]string
 	Remediation string
+	// References default to the check's Meta.References.
+	References []string
 }
 
 // Fingerprint returns a stable identifier for the finding derived only from

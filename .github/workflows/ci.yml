@@ -61,6 +61,24 @@ jobs:
         run: GOOS=windows go vet ./...
       - name: staticcheck
         run: go run honnef.co/go/tools/cmd/staticcheck@2026.1 ./...
+      - name: check catalog is up to date
+        run: |
+          make catalog
+          git diff --exit-code docs/src/content/docs/checks
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: docs/package-lock.json
+      - run: npm ci
+        working-directory: docs
+      - run: npm run build
+        working-directory: docs
 
   vulncheck:
     runs-on: ubuntu-latest
@@ -70,3 +88,14 @@ jobs:
         with:
           go-version-input: stable
           check-latest: true
+
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: stable
+          check-latest: true
+      - name: CoreDNS, Postfix and nginx in Docker
+        run: make integration

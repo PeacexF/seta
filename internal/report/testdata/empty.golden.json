@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "tool": {
+    "name": "seta",
+    "version": "dev"
+  },
+  "started_at": "2026-09-01T12:00:00Z",
+  "duration_ms": 0,
+  "targets": [
+    "clean.test"
+  ],
+  "summary": {
+    "findings": 0,
+    "by_severity": {
+      "critical": 0,
+      "high": 0,
+      "info": 0,
+      "low": 0,
+      "medium": 0
+    },
+    "check_errors": 0,
+    "checks_run": 0
+  },
+  "findings": [],
+  "errors": []
+}

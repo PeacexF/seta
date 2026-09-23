@@ -1,0 +1,84 @@
+# Integration environment: CoreDNS serving test zones, Postfix with and
+# without STARTTLS, an expired-certificate MX, and an MTA-STS policy host.
+# Run with: make integration (it mounts the host's module cache, so the
+# containers need no network access to the Go proxy).
+name: seta-integration
+
+x-go: &go
+  image: golang:1.26
+  working_dir: /src
+  volumes:
+    - ..:/src:ro
+    - certs:/certs
+    - gocache:/root/.cache/go-build
+    - ${SETA_GOMODCACHE:?run via make integration}:/go/pkg/mod:ro
+  environment:
+    GOFLAGS: -buildvcs=false
+    GOPROXY: "off"
+
+services:
+  certgen:
+    <<: *go
+    command: go run ./integration/certgen /certs
+
+  dns:
+    image: coredns/coredns:1.12.2
+    command: -conf /etc/coredns/Corefile
+    volumes:
+      - ./Corefile:/etc/coredns/Corefile:ro
+      - ./zones:/zones:ro
+    networks:
+      seta: { ipv4_address: 172.28.0.53 }
+
+  mx-tls:
+    build: ./postfix
+    environment: { MAIL_HOSTNAME: mx-tls.int.test, TLS_CERT: /certs/mx-tls.pem, TLS_KEY: /certs/mx-tls.key }
+    volumes: [certs:/certs:ro]
+    depends_on: { certgen: { condition: service_completed_successfully } }
+    networks:
+      seta: { ipv4_address: 172.28.0.25 }
+
+  mx-plain:
+    build: ./postfix
+    environment: { MAIL_HOSTNAME: mx-plain.int.test }
+    networks:
+      seta: { ipv4_address: 172.28.0.26 }
+
+  mx-expired:
+    build: ./postfix
+    environment: { MAIL_HOSTNAME: mx-expired.int.test, TLS_CERT: /certs/mx-expired.pem, TLS_KEY: /certs/mx-expired.key }
+    volumes: [certs:/certs:ro]
+    depends_on: { certgen: { condition: service_completed_successfully } }
+    networks:
+      seta: { ipv4_address: 172.28.0.27 }
+
+  mta-sts:
+    image: nginx:1.29-alpine
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/mta-sts.txt:/policy/mta-sts.txt:ro
+      - certs:/certs:ro
+    depends_on: { certgen: { condition: service_completed_successfully } }
+    networks:
+      seta: { ipv4_address: 172.28.0.80 }
+
+  tests:
+    <<: *go
+    command: go test -tags integration -count=1 -v ./integration/
+    environment:
+      GOFLAGS: -buildvcs=false
+      GOPROXY: "off"
+      SETA_IT_DNS: 172.28.0.53
+      SETA_IT_CA: /certs/ca.pem
+    depends_on: [dns, mx-tls, mx-plain, mx-expired, mta-sts]
+    networks: [seta]
+
+networks:
+  seta:
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24
+
+volumes:
+  certs:
+  gocache:

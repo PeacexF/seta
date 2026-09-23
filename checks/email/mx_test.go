@@ -24,7 +24,7 @@ func TestMXMissing(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.domain, func(t *testing.T) {
-			findings, err := checktest.Run(t, MXMissing{}, fixtures, tt.domain)
+			findings, err := checktest.Run(t, Check("email.mx.missing"), fixtures, tt.domain)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -50,7 +50,7 @@ func TestMXMissing(t *testing.T) {
 
 func TestMXMissingErrorsAreNotFindings(t *testing.T) {
 	t.Run("nonexistent domain", func(t *testing.T) {
-		_, err := checktest.Run(t, MXMissing{}, checktest.Fixtures(t), "does-not-exist.test")
+		_, err := checktest.Run(t, Check("email.mx.missing"), checktest.Fixtures(t), "does-not-exist.test")
 		if err == nil || !strings.Contains(err.Error(), "NXDOMAIN") {
 			t.Fatalf("want NXDOMAIN check error, got %v", err)
 		}
@@ -58,14 +58,15 @@ func TestMXMissingErrorsAreNotFindings(t *testing.T) {
 	t.Run("SERVFAIL on MX", func(t *testing.T) {
 		fixtures := checktest.Fixtures(t)
 		fixtures.SetError("mx-none.test", dns.TypeMX, nil)
-		if _, err := checktest.Run(t, MXMissing{}, fixtures, "mx-none.test"); err == nil {
+		if _, err := checktest.Run(t, Check("email.mx.missing"), fixtures, "mx-none.test"); err == nil {
 			t.Fatal("want check error, got none")
 		}
 	})
-	t.Run("SERVFAIL on A only degrades evidence", func(t *testing.T) {
+	t.Run("SERVFAIL on addresses only degrades evidence", func(t *testing.T) {
 		fixtures := checktest.Fixtures(t)
 		fixtures.SetError("mx-none.test", dns.TypeA, nil)
-		findings, err := checktest.Run(t, MXMissing{}, fixtures, "mx-none.test")
+		fixtures.SetError("mx-none.test", dns.TypeAAAA, nil)
+		findings, err := checktest.Run(t, Check("email.mx.missing"), fixtures, "mx-none.test")
 		if err != nil || len(findings) != 1 {
 			t.Fatalf("want 1 finding, got %v, %v", findings, err)
 		}

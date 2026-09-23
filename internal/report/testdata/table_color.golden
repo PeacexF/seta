@@ -18,4 +18,6 @@
 [2m  These checks could not reach a verdict; they are not findings.[0m
   flaky.test  email.mx.missing  lookup MX flaky.test: server responded SERVFAIL
 
+[2mActive checks were not run.[0m
+
 3 findings (1 critical, 1 high, 1 low) · 1 check error · 6 checks on 3 targets · 1.23s

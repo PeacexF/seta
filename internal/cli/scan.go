@@ -3,22 +3,41 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"io"
+	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/PeacexF/seta/internal/core"
 	"github.com/PeacexF/seta/internal/engine"
 	"github.com/PeacexF/seta/internal/report"
+	"github.com/PeacexF/seta/internal/version"
 )
 
+type scanFlags struct {
+	active    bool
+	only      []string
+	format    string
+	output    string
+	selectors []string
+}
+
 func (a *App) scanCommand() *cobra.Command {
-	var rf resolverFlags
+	var (
+		rf resolverFlags
+		sf scanFlags
+	)
 	cmd := &cobra.Command{
 		Use:   "scan <domain>...",
 		Short: "Scan domains once, without a config file",
-		Long: "Run all passive checks against the given domains and print a report.\n\n" +
+		Long: "Run passive checks against the given domains and print a report. Active checks, which\n" +
+			"connect to the domain's servers (e.g. STARTTLS on port 25), run only with --active.\n\n" +
 			"Only scan domains you own or are authorized to test.",
-		Example: "  seta scan example.com\n  seta scan example.com example.org\n  seta scan --resolver doh example.com",
+		Example: "  seta scan example.com\n" +
+			"  seta scan --active example.com example.org\n" +
+			"  seta scan --only 'email.spf.*' --format json example.com\n" +
+			"  seta scan --dkim-selector google,s1 example.com",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return &exitError{code: ExitUsage, err: errors.New("scan needs at least one domain, e.g. 'seta scan example.com'")}
@@ -26,33 +45,106 @@ func (a *App) scanCommand() *cobra.Command {
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			targets, err := parseTargets(args)
-			if err != nil {
-				return &exitError{code: ExitUsage, err: err}
-			}
-
-			var checks []core.Check
-			for _, c := range a.Registry.All() {
-				if c.Meta().Mode == core.Passive {
-					checks = append(checks, c)
-				}
-			}
-			jobs := make([]engine.Job, len(targets))
-			for i, t := range targets {
-				jobs[i] = engine.Job{Target: t, Checks: checks}
-			}
-
-			resolver, err := a.setupResolver(cmd.Context(), rf)
-			if err != nil {
-				return err
-			}
-			eng := &engine.Engine{Resolver: resolver, Logger: a.logger}
-			res := eng.Run(cmd.Context(), jobs)
-			return report.Table(cmd.OutOrStdout(), res, report.Options{Color: a.useColor(cmd.OutOrStdout())})
+			return a.runScan(cmd, args, rf, sf)
 		},
 	}
+	f := cmd.Flags()
+	f.BoolVar(&sf.active, "active", false, "also run active checks, which connect to the domain's servers")
+	f.StringSliceVar(&sf.only, "only", nil, "run only checks matching these patterns (e.g. 'email.spf.*', '!email.dnsbl.*')")
+	f.StringVarP(&sf.format, "format", "f", "table", "output format: table or json")
+	f.StringVarP(&sf.output, "output", "o", "", "write the report to a file instead of stdout")
+	f.StringSliceVar(&sf.selectors, "dkim-selector", nil, "DKIM selectors to check (default: try common selector names)")
 	rf.register(cmd)
 	return cmd
+}
+
+func (a *App) runScan(cmd *cobra.Command, args []string, rf resolverFlags, sf scanFlags) error {
+	if sf.format != "table" && sf.format != "json" {
+		return &exitError{code: ExitUsage, err: fmt.Errorf("unknown --format %q (want table or json)", sf.format)}
+	}
+	targets, err := parseTargets(args)
+	if err != nil {
+		return &exitError{code: ExitUsage, err: err}
+	}
+	checks, skippedActive, err := a.selectChecks(sf.only, sf.active)
+	if err != nil {
+		return &exitError{code: ExitUsage, err: err}
+	}
+	for i := range targets {
+		targets[i].Email = core.EmailOptions{
+			DKIMSelectors:  sf.selectors,
+			SpamhausDQSKey: os.Getenv("SETA_SPAMHAUS_DQS_KEY"),
+		}
+	}
+
+	resolver, err := a.setupResolver(cmd.Context(), rf)
+	if err != nil {
+		return err
+	}
+	var out io.Writer = cmd.OutOrStdout()
+	if sf.output != "" {
+		file, err := os.Create(sf.output)
+		if err != nil {
+			return &exitError{code: ExitUsage, err: err}
+		}
+		defer file.Close()
+		out = file
+	}
+	jobs := make([]engine.Job, len(targets))
+	for i, t := range targets {
+		jobs[i] = engine.Job{Target: t, Checks: checks}
+	}
+	eng := &engine.Engine{Resolver: resolver, Logger: a.logger}
+	eng.Net.UserAgent = version.UserAgent()
+	res := eng.Run(cmd.Context(), jobs)
+
+	if sf.format == "json" {
+		err = report.JSON(out, res)
+	} else {
+		var notes []string
+		if skippedActive > 0 {
+			notes = append(notes, fmt.Sprintf("%s not run (e.g. STARTTLS); pass --active to connect to mail servers.",
+				plural(skippedActive, "active check")))
+		}
+		err = report.Table(out, res, report.Options{Color: sf.output == "" && a.useColor(out), Notes: notes})
+	}
+	if err != nil {
+		return err
+	}
+	if sf.output != "" {
+		return closeErr(out)
+	}
+	return nil
+}
+
+func closeErr(w io.Writer) error {
+	if c, ok := w.(io.Closer); ok {
+		return c.Close()
+	}
+	return nil
+}
+
+// selectChecks applies --only and drops active checks unless --active is
+// set. It errors when that leaves nothing to run.
+func (a *App) selectChecks(only []string, active bool) (checks []core.Check, skippedActive int, err error) {
+	selected, err := a.Registry.Select(only)
+	if err != nil {
+		return nil, 0, err
+	}
+	for _, c := range selected {
+		if c.Meta().Mode == core.Active && !active {
+			skippedActive++
+			continue
+		}
+		checks = append(checks, c)
+	}
+	if len(checks) == 0 {
+		if skippedActive > 0 {
+			return nil, 0, fmt.Errorf("%s selects only active checks; pass --active to run them", strings.Join(only, ","))
+		}
+		return nil, 0, errors.New("no checks selected")
+	}
+	return checks, skippedActive, nil
 }
 
 // parseTargets validates domain arguments, dropping duplicates while keeping
@@ -71,8 +163,12 @@ func parseTargets(args []string) ([]core.Target, error) {
 		seen[t.Name] = true
 		targets = append(targets, t)
 	}
-	if len(targets) == 0 {
-		return nil, fmt.Errorf("no domains to scan")
-	}
 	return targets, nil
+}
+
+func plural(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
 }

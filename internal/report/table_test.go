@@ -31,6 +31,7 @@ func sampleResult() *engine.Result {
 				Title:       "SPF record allows any sender",
 				Evidence:    map[string]string{"record": "v=spf1 +all"},
 				Remediation: "Replace +all with -all or ~all.",
+				References:  []string{"https://www.rfc-editor.org/rfc/rfc7208#section-5.1"},
 			},
 			{
 				CheckID: "email.mx.missing", Target: "broken.test", Severity: core.SeverityHigh,
@@ -57,7 +58,7 @@ func TestTableGolden(t *testing.T) {
 		opts   Options
 	}{
 		{"plain", "table.golden", sampleResult(), Options{}},
-		{"color", "table_color.golden", sampleResult(), Options{Color: true}},
+		{"color", "table_color.golden", sampleResult(), Options{Color: true, Notes: []string{"Active checks were not run."}}},
 		{"empty", "table_empty.golden", &engine.Result{
 			Duration: 80 * time.Millisecond, Executions: 1,
 			Targets: []core.Target{{Kind: core.KindDomain, Name: "clean.test"}},
@@ -88,5 +89,18 @@ func assertGolden(t *testing.T, path string, got []byte) {
 	}
 	if !bytes.Equal(got, want) {
 		t.Errorf("output differs from %s (rerun with -update if intended)\n--- got ---\n%s\n--- want ---\n%s", path, got, want)
+	}
+}
+
+func TestJSONGolden(t *testing.T) {
+	for name, res := range map[string]*engine.Result{
+		"report.golden.json": sampleResult(),
+		"empty.golden.json":  {Started: time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC), Targets: []core.Target{{Name: "clean.test"}}},
+	} {
+		var buf bytes.Buffer
+		if err := JSON(&buf, res); err != nil {
+			t.Fatal(err)
+		}
+		assertGolden(t, filepath.Join("testdata", name), buf.Bytes())
 	}
 }

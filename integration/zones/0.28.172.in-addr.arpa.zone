@@ -1,0 +1,7 @@
+$ORIGIN 0.28.172.in-addr.arpa.
+$TTL 60
+@   SOA  ns.int.test. hostmaster.int.test. 1 3600 600 86400 60
+@   NS   ns.int.test.
+25  PTR  mx-tls.int.test.
+26  PTR  mx-plain.int.test.
+27  PTR  mx-expired.int.test.

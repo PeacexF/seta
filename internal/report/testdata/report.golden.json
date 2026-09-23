@@ -1,0 +1,75 @@
+{
+  "schema": 1,
+  "tool": {
+    "name": "seta",
+    "version": "dev"
+  },
+  "started_at": "2026-09-01T12:00:00Z",
+  "duration_ms": 1234,
+  "targets": [
+    "broken.test",
+    "clean.test",
+    "flaky.test"
+  ],
+  "summary": {
+    "findings": 3,
+    "by_severity": {
+      "critical": 1,
+      "high": 1,
+      "info": 0,
+      "low": 1,
+      "medium": 0
+    },
+    "check_errors": 1,
+    "checks_run": 6
+  },
+  "findings": [
+    {
+      "fingerprint": "d76344a4eb407126a3da395994e65640",
+      "check_id": "email.spf.permissive_all",
+      "target": "broken.test",
+      "subject": "",
+      "severity": "critical",
+      "title": "SPF record allows any sender",
+      "evidence": {
+        "record": "v=spf1 +all"
+      },
+      "remediation": "Replace +all with -all or ~all.",
+      "references": [
+        "https://www.rfc-editor.org/rfc/rfc7208#section-5.1"
+      ]
+    },
+    {
+      "fingerprint": "186cb8898eec04bd9cad5ebde031306b",
+      "check_id": "email.mx.missing",
+      "target": "broken.test",
+      "subject": "",
+      "severity": "high",
+      "title": "No MX records",
+      "evidence": {
+        "implicit_mx": "192.0.2.80",
+        "mx_records": "none"
+      },
+      "remediation": "Publish MX records.",
+      "references": []
+    },
+    {
+      "fingerprint": "a1a02ba751d475630a31f6d03b9ea875",
+      "check_id": "email.mx.fcrdns",
+      "target": "broken.test",
+      "subject": "mx2.broken.test",
+      "severity": "low",
+      "title": "MX host lacks forward-confirmed reverse DNS",
+      "evidence": {},
+      "remediation": "",
+      "references": []
+    }
+  ],
+  "errors": [
+    {
+      "check_id": "email.mx.missing",
+      "target": "flaky.test",
+      "error": "lookup MX flaky.test: server responded SERVFAIL"
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+version: STSv1
+mode: enforce
+mx: mx-tls.int.test
+max_age: 86400

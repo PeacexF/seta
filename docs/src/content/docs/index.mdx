@@ -1,0 +1,31 @@
+---
+title: Seta
+description: Posture monitoring as code for public-facing infrastructure.
+template: splash
+hero:
+  tagline: Checks the public posture of your domains and tells you what needs fixing, with evidence and a concrete fix for every finding.
+  actions:
+    - text: Quickstart
+      link: quickstart/
+      icon: right-arrow
+    - text: Check catalog
+      link: checks/email/
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+<CardGrid>
+  <Card title="Email posture" icon="email">
+    MX, SPF (with recursive lookup counting), DMARC, DKIM, MTA-STS, TLS-RPT, DNS blocklists and STARTTLS.
+  </Card>
+  <Card title="Low noise" icon="approve-check">
+    Failures to check are reported as check errors, never as findings. Seta refuses to scan through a DNS resolver that hides records.
+  </Card>
+  <Card title="Scriptable" icon="seti:json">
+    `--format json` produces a versioned schema for pipelines and dashboards.
+  </Card>
+  <Card title="Safe by default" icon="warning">
+    Passive checks only, unless you pass `--active`. Only scan domains you own or are authorized to test.
+  </Card>
+</CardGrid>

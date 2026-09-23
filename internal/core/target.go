@@ -16,8 +16,21 @@ const KindDomain TargetKind = "domain"
 // Target is something to check. Name is always in canonical form (see
 // ParseDomain), so it can be used directly in fingerprints.
 type Target struct {
-	Kind TargetKind
-	Name string
+	Kind  TargetKind
+	Name  string
+	Email EmailOptions
+}
+
+type EmailOptions struct {
+	DKIMSelectors []string
+	// SelectorsGuessed marks DKIMSelectors as common guesses rather than the
+	// domain's real selectors, so finding none proves nothing.
+	SelectorsGuessed bool
+	// DNSBLs overrides the default blocklist zones.
+	DNSBLs []string
+	// SpamhausDQSKey enables Spamhaus via Data Query Service, which unlike
+	// the public mirrors answers queries relayed through public resolvers.
+	SpamhausDQSKey string
 }
 
 func (t Target) String() string { return t.Name }

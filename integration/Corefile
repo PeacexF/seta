@@ -1,0 +1,7 @@
+. {
+    auto {
+        directory /zones (.*)\.zone {1}
+    }
+    log
+    errors
+}

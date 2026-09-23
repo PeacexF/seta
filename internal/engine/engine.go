@@ -16,6 +16,7 @@ import (
 
 	"github.com/PeacexF/seta/internal/core"
 	"github.com/PeacexF/seta/internal/dnsx"
+	"github.com/PeacexF/seta/internal/netx"
 )
 
 // Defaults for Engine fields left at their zero value.
@@ -29,6 +30,7 @@ const (
 type Engine struct {
 	// Resolver is wrapped in a fresh dnsx.Cache for every run.
 	Resolver dnsx.Resolver
+	Net      netx.Options
 	Logger   *slog.Logger
 	// Workers bounds how many checks run at once across all targets.
 	Workers int
@@ -88,9 +90,13 @@ func (e *Engine) Run(ctx context.Context, jobs []Job) *Result {
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
 	}
+	cache := dnsx.NewCache(e.Resolver)
 	env := core.Env{
-		Resolver: dnsx.NewCache(e.Resolver),
+		Resolver: cache,
+		Net:      netx.New(cache, e.Net),
+		Memo:     core.NewMemo(),
 		Logger:   logger,
+		Now:      now,
 	}
 
 	res := &Result{Started: now()}
@@ -145,7 +151,7 @@ func (e *Engine) runOne(ctx context.Context, env core.Env, c core.Check, t core.
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("run canceled before check started: %w", err)
 	}
-	timeout := orDefault(e.CheckTimeout, DefaultCheckTimeout)
+	timeout := orDefault(meta.Timeout, orDefault(e.CheckTimeout, DefaultCheckTimeout))
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -218,6 +224,9 @@ func normalize(meta core.Meta, t core.Target, findings []core.Finding) ([]core.F
 		}
 		if f.Remediation == "" {
 			f.Remediation = meta.Remediation
+		}
+		if f.References == nil {
+			f.References = meta.References
 		}
 		out = append(out, f)
 	}

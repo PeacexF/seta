@@ -18,6 +18,8 @@ type Options struct {
 	// Color enables ANSI colors. Callers decide based on the output being a
 	// terminal and NO_COLOR.
 	Color bool
+	// Notes are printed above the summary, e.g. that active checks were skipped.
+	Notes []string
 }
 
 // Table writes a human-readable report grouped by target, highest severity
@@ -61,6 +63,12 @@ func Table(w io.Writer, res *engine.Result, opts Options) error {
 		}
 	}
 
+	if len(opts.Notes) > 0 {
+		b.WriteString("\n")
+		for _, n := range opts.Notes {
+			b.WriteString(p.dim(n) + "\n")
+		}
+	}
 	b.WriteString("\n" + summary(res) + "\n")
 	_, err := io.WriteString(w, b.String())
 	return err

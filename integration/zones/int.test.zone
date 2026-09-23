@@ -1,0 +1,27 @@
+; Zone served by CoreDNS in the integration environment. Addresses match
+; the fixed IPs in docker-compose.yml.
+$ORIGIN int.test.
+$TTL 60
+@               SOA  ns hostmaster 1 3600 600 86400 60
+@               NS   ns
+ns              A    172.28.0.53
+mx-tls          A    172.28.0.25
+mx-plain        A    172.28.0.26
+mx-expired      A    172.28.0.27
+
+; tls.int.test: a well-configured mail domain. Expect no findings.
+tls             MX   10 mx-tls
+tls             TXT  "v=spf1 a:mx-tls.int.test -all"
+_dmarc.tls      TXT  "v=DMARC1; p=reject; rua=mailto:dmarc@int.test"
+_smtp._tls.tls  TXT  "v=TLSRPTv1; rua=mailto:tlsrpt@int.test"
+_mta-sts.tls    TXT  "v=STSv1; id=1"
+mta-sts.tls     A    172.28.0.80
+s1._domainkey.tls TXT "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAiiZa1Ib8xf6iX7BV3kZ4/DkKnqEmIZkEF/WEFZIaB2PQ/Zb9f53/8O3HaiQsxcrJu2ClZ30hCAE26SZ48wrFmJgqjoZvlOawaa6RG1D21U2LVVN7GAy7lISumSIjmK0PcKv7ekCTXsK7iA2kRY91QpRNAlRJ" "uQwUh8TMcNBQ3yOa0nxuO8fCMMd3ShKal5ojCBYWLAiAwcThAJShgWis1BOtwIX2NR9bXeXCrV7b18vqMHTBRnkb+HeaGAXkHOfRMpITifye1itJHmvQzRTSwlmMtR6HTsB2HBzQHI9iMAIajnT0rhiQ17Xzh4CL9MhjDTe37T82uH/6vADsiivvSQIDAQAB"
+
+; plain.int.test: MX without STARTTLS.
+plain           MX   10 mx-plain
+; expired.int.test: MX with an expired certificate.
+expired         MX   10 mx-expired
+
+; A DNSBL that follows RFC 5782 and lists nothing else.
+2.0.0.127.bl    A    127.0.0.2

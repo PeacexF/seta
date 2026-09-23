@@ -8,8 +8,10 @@ import (
 	"log/slog"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/PeacexF/seta/internal/dnsx"
+	"github.com/PeacexF/seta/internal/netx"
 )
 
 // Mode says whether a check only reads public data or also talks to the
@@ -62,6 +64,8 @@ type Meta struct {
 	Mode        Mode
 	Severity    Severity
 	References  []string
+	// Timeout overrides the engine's per-check timeout when set.
+	Timeout time.Duration
 }
 
 var checkIDPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$`)
@@ -102,11 +106,12 @@ func (m Meta) Validate() error {
 	return nil
 }
 
-// Env carries the shared services a check may use. Checks must not rely on
-// any other global state, so they stay trivially testable with fakes.
+// Env carries everything a check may use; checks keep no other state, so
+// tests can swap in fakes. Resolver, Net and Memo are shared within a run.
 type Env struct {
-	// Resolver is shared by all checks in a run and caches responses, so
-	// repeated lookups are cheap and consistent within the run.
 	Resolver dnsx.Resolver
+	Net      *netx.Net
+	Memo     *Memo
 	Logger   *slog.Logger
+	Now      func() time.Time
 }

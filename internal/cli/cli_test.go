@@ -3,6 +3,9 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -11,6 +14,7 @@ import (
 
 	"github.com/PeacexF/seta/checks/email"
 	"github.com/PeacexF/seta/internal/checktest"
+	"github.com/PeacexF/seta/internal/core"
 	"github.com/PeacexF/seta/internal/dnsx"
 	"github.com/PeacexF/seta/internal/registry"
 )
@@ -18,6 +22,7 @@ import (
 // harness runs the CLI with fake resolvers. Each resolver defaults to the
 // honest zone fixtures; a test can make any of them lie.
 type harness struct {
+	checks           []core.Check // default: just email.mx.missing
 	system, doh, dot dnsx.Resolver
 	prompt           func(question string) (bool, error)
 	specs            [][]string // every spec list a resolver was built for
@@ -27,8 +32,14 @@ type harness struct {
 func (h *harness) run(t *testing.T, args ...string) (code int, stdout, stderr string) {
 	t.Helper()
 	reg := registry.New()
-	if err := reg.Register(email.MXMissing{}); err != nil {
-		t.Fatal(err)
+	checks := h.checks
+	if checks == nil {
+		checks = []core.Check{email.Check("email.mx.missing")}
+	}
+	for _, c := range checks {
+		if err := reg.Register(c); err != nil {
+			t.Fatal(err)
+		}
 	}
 	honest := checktest.Fixtures(t)
 	pick := func(r dnsx.Resolver) dnsx.Resolver {
@@ -261,5 +272,72 @@ func TestResolverFlag(t *testing.T) {
 		if code != ExitUsage || errOut == "" {
 			t.Errorf("--resolver %q: code %d, stderr %q", bad, code, errOut)
 		}
+	}
+}
+
+func TestScanJSONAndOutputFile(t *testing.T) {
+	code, out, errOut := run(t, "scan", "-f", "json", "mx-none.test")
+	if code != ExitOK {
+		t.Fatalf("code %d: %s", code, errOut)
+	}
+	var r struct {
+		Schema   int `json:"schema"`
+		Findings []struct {
+			CheckID string `json:"check_id"`
+		} `json:"findings"`
+	}
+	if err := json.Unmarshal([]byte(out), &r); err != nil || r.Schema != 1 || len(r.Findings) != 1 {
+		t.Fatalf("bad JSON (%v): %s", err, out)
+	}
+
+	path := filepath.Join(t.TempDir(), "report.txt")
+	code, out, _ = run(t, "scan", "-o", path, "mx-none.test")
+	data, err := os.ReadFile(path)
+	if code != ExitOK || out != "" || err != nil || !strings.Contains(string(data), "email.mx.missing") {
+		t.Fatalf("code %d, stdout %q, file %q, %v", code, out, data, err)
+	}
+
+	if code, _, errOut := run(t, "scan", "-f", "xml", "mx-none.test"); code != ExitUsage || !strings.Contains(errOut, "unknown --format") {
+		t.Fatalf("bad format: code %d, %s", code, errOut)
+	}
+}
+
+func TestScanSelection(t *testing.T) {
+	h := &harness{checks: email.Checks()}
+	code, out, _ := h.run(t, "scan", "--only", "email.spf.*", "mx-none.test")
+	if code != ExitOK || strings.Contains(out, "email.mx.missing") || !strings.Contains(out, "email.spf.missing") {
+		t.Fatalf("--only: code %d\n%s", code, out)
+	}
+	if !strings.Contains(out, "6 checks") || strings.Contains(out, "active check") {
+		t.Errorf("--only email.spf.* should run 6 passive checks without an active-check note:\n%s", out)
+	}
+
+	code, out, _ = h.run(t, "scan", "mx-none.test")
+	if code != ExitOK || !strings.Contains(out, "3 active checks not run") {
+		t.Errorf("default scan should note skipped active checks:\n%s", out)
+	}
+
+	code, _, errOut := h.run(t, "scan", "--only", "email.starttls.*", "mx-none.test")
+	if code != ExitUsage || !strings.Contains(errOut, "pass --active") {
+		t.Errorf("active-only selection without --active: code %d, %s", code, errOut)
+	}
+	if code, _, errOut := h.run(t, "scan", "--only", "email.nope.*", "mx-none.test"); code != ExitUsage || !strings.Contains(errOut, "matches no checks") {
+		t.Errorf("unknown pattern: code %d, %s", code, errOut)
+	}
+}
+
+func TestChecksExplain(t *testing.T) {
+	h := &harness{checks: email.Checks()}
+	code, out, _ := h.run(t, "checks", "explain", "email.spf.lookup_limit")
+	for _, want := range []string{"email.spf.lookup_limit\n", "Severity:  high", "Why it matters", "How to fix", "rfc7208"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("explain output missing %q:\n%s", want, out)
+		}
+	}
+	if code != ExitOK {
+		t.Errorf("code %d", code)
+	}
+	if code, _, errOut := h.run(t, "checks", "explain", "email.nope.nope"); code != ExitUsage || !strings.Contains(errOut, "unknown check") {
+		t.Errorf("unknown check: code %d, %s", code, errOut)
 	}
 }
